@@ -1,0 +1,12 @@
+# Local market data — never commit (Binance klines, ~194MB)
+crypto_data/
+notebooks/crypto_data
+
+# Jupyter / Python artifacts
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Executed notebook outputs produced by nbconvert runs
+notebooks/*_executed.ipynb
