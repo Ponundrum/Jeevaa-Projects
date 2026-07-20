@@ -12,14 +12,23 @@ frame the strategies need, plus the liquidity / short-feasibility masks and the
 BTC-residualised returns.
 """
 import io
+import json
+import time
+import random
 import zipfile
 import concurrent.futures as cf
 from urllib.request import urlopen
+from urllib.error import HTTPError
 
 import numpy as np
 import pandas as pd
 
 from .config import DATA, ARCHIVE, TRAIN, seg
+
+# Concurrency for the archive pull. Kept modest on purpose: hammering
+# data.binance.vision with many workers invites rate-limiting (429), which — with
+# the retry/backoff below — we would rather avoid than have to recover from.
+MAX_WORKERS = 8
 
 # --- 379-coin point-in-time spot pool (incl. since-delisted names) ---------
 SPOT_SYMBOLS = [s + "USDT" for s in (
@@ -83,18 +92,40 @@ def _utc(ms):
     return pd.to_datetime(ms, unit=("us" if ms.max() > 10 ** 14 else "ms"), utc=True)
 
 
-def _grab(url, fn, cache):
-    fp = cache / fn
+def _download_cached(url, fp, retries=3):
+    """Fetch the zip bytes for ``url``, cached at ``fp``. Returns bytes, or None.
+
+    Caches a negative sentinel (empty file) ONLY for a genuine 404 — a month that
+    truly does not exist for this symbol. On a *transient* failure (timeout,
+    connection reset, 429/5xx) it retries with exponential backoff and, if still
+    failing, leaves the path UNcached so a later run retries rather than silently
+    and permanently dropping the coin-month. (This is P0.1: a single network blip
+    must not quietly corrupt the dataset.)
+    """
     if fp.exists():
         b = fp.read_bytes()
         return b if b else None
-    try:
-        b = urlopen(url, timeout=30).read()
-    except Exception:
-        fp.write_bytes(b"")
-        return None
-    fp.write_bytes(b)
-    return b
+    delay = 0.5
+    for attempt in range(retries):
+        try:
+            b = urlopen(url, timeout=30).read()
+            fp.write_bytes(b)
+            return b
+        except HTTPError as e:
+            if e.code == 404:                      # genuine absence -> cache the negative
+                fp.write_bytes(b"")
+                return None
+            # 429 / 5xx -> transient, fall through and retry
+        except Exception:
+            pass                                   # timeout / connection reset -> transient
+        if attempt < retries - 1:
+            time.sleep(delay + random.uniform(0, 0.25))
+            delay *= 2
+    return None                                    # retries exhausted -> do NOT cache; next run retries
+
+
+def _grab(url, fn, cache):
+    return _download_cached(url, cache / fn)
 
 
 def _csv(b, names=None, header=None):
@@ -168,7 +199,7 @@ def download_if_needed(verbose=True):
               f"{len(CARRY_SYMBOLS)} perp symbols from data.binance.vision (~5-8 min once, then cached).")
     IDX = pd.date_range("2020-01-01", "2026-05-31", freq="D", tz="UTC")
     sd = {}
-    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+    with cf.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         for i, (s, x) in enumerate(ex.map(_spot_one, SPOT_SYMBOLS), 1):
             if x is not None:
                 sd[s] = x
@@ -178,7 +209,7 @@ def download_if_needed(verbose=True):
                         ("quote_volume", "quote_volume_1d_full"), ("tbb", "taker_buy_base_volume_1d_full")]:
         pd.DataFrame({s: x[field] for s, x in sd.items()}).reindex(IDX).to_parquet(DATA / f"{name}.parquet")
     fd, pp = {}, {}
-    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+    with cf.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         for i, (s, f, p) in enumerate(ex.map(_fut_one, CARRY_SYMBOLS), 1):
             if f is not None:
                 fd[s] = f
@@ -186,8 +217,21 @@ def download_if_needed(verbose=True):
                 pp[s] = p
     pd.DataFrame(fd).reindex(IDX).to_parquet(DATA / "funding_daily_full.parquet")
     pd.DataFrame(pp).reindex(IDX).to_parquet(DATA / "perp_close_1d_full.parquet")
+
+    # P0.2 — write a coverage manifest so incomplete downloads are visible, not silent.
+    missing = sorted(set(SPOT_SYMBOLS) - set(sd))
+    manifest = {
+        "spot_requested": len(SPOT_SYMBOLS), "spot_fetched": len(sd), "spot_missing": missing,
+        "carry_requested": len(CARRY_SYMBOLS), "funding_fetched": len(fd), "perp_fetched": len(pp),
+        "per_symbol_days": {s: int(x["close"].notna().sum()) for s, x in sd.items()},
+    }
+    (DATA / "_coverage.json").write_text(json.dumps(manifest, indent=1))
     if verbose:
-        print(f"Done: built {len(sd)} spot + {len(fd)} funding / {len(pp)} perp series, cached.")
+        print(f"Done: built {len(sd)}/{len(SPOT_SYMBOLS)} spot + {len(fd)} funding / {len(pp)} perp series, cached.")
+        if missing:
+            print(f"  WARNING: {len(missing)} spot symbols returned NO data (network or genuinely absent): "
+                  f"{missing[:10]}{'...' if len(missing) > 10 else ''}")
+        print("  Coverage manifest written to crypto_data/processed/_coverage.json")
 
 
 class Dataset:
@@ -252,6 +296,24 @@ class Dataset:
             ret=ret_all[UNIV], btc=btc, ew=ew, funding=funding, perp=perp,
         )
 
+    # --- data-coverage audit (P0.2) ------------------------------------------
+    def coverage_report(self):
+        """Per-symbol coverage of the loaded pool: first/last valid date and the
+        count of non-NaN days. Lets a reviewer confirm they built the same universe
+        (and surfaces any symbol that silently came back empty). Reads from the
+        loaded frames, so it works off the cache without re-downloading."""
+        c = self.close_all
+        rep = pd.DataFrame({
+            "first": c.apply(lambda s: s.first_valid_index()),
+            "last": c.apply(lambda s: s.last_valid_index()),
+            "n_days": c.notna().sum().astype(int),
+        })
+        rep["pct_span"] = (rep["n_days"] / len(c)).round(3)
+        empty = list(rep.index[rep["n_days"] == 0])
+        if empty:
+            print(f"WARNING: {len(empty)} symbols have ZERO usable rows: {empty[:10]}")
+        return rep.sort_values("n_days", ascending=False)
+
     # --- optional intraday pulls used by specific analyses --------------------
     def hourly_basis(self, symbols, verbose=True):
         """Fetch hourly spot+perp for ``symbols`` and return the per-coin hourly
@@ -277,15 +339,7 @@ def _bar_series(base, sym, tag, freq, cache):
     fr = []
     for y, m in _MON1H:
         fp = cache / f"{tag}-{sym}-{y}-{m:02d}.zip"
-        if fp.exists():
-            b = fp.read_bytes()
-            b = b if b else None
-        else:
-            try:
-                b = urlopen(f"{base}/{sym}/{freq}/{sym}-{freq}-{y}-{m:02d}.zip", timeout=30).read()
-            except Exception:
-                b = None
-            fp.write_bytes(b or b"")
+        b = _download_cached(f"{base}/{sym}/{freq}/{sym}-{freq}-{y}-{m:02d}.zip", fp)
         if not b:
             continue
         try:
@@ -310,7 +364,7 @@ def _hourly_basis(symbols, verbose=True):
     if verbose:
         print("Fetching hourly spot+perp for the carry majors (cached after first run)...")
     sp, pp = {}, {}
-    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+    with cf.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         fs = {ex.submit(_bar_series, _SPOT1H, s, "s", "1h", cache): s for s in symbols}
         fpp = {ex.submit(_bar_series, _FUT1H, s, "p", "1h", cache): s for s in symbols}
         for fu in cf.as_completed(fs):
@@ -335,7 +389,7 @@ def _fetch_4h(symbols, verbose=True):
     if verbose:
         print("Fetching 4h spot bars (cached after first run)...")
     out = {}
-    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+    with cf.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(_bar_series, _SPOT1H, s, "s4", "4h", cache): s for s in symbols}
         for fu in cf.as_completed(futs):
             r = fu.result()
