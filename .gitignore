@@ -1,0 +1,14 @@
+# Market data caches — never commit (downloaded from Binance's public archive on first run)
+**/crypto_data/
+crypto_data/
+
+# Python / Jupyter artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+
+# Local notebook backups / copies (kept on disk, not committed)
+**/*_backup.ipynb
+**/*-Copy*.ipynb
+**/*_executed.ipynb
