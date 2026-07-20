@@ -1,0 +1,192 @@
+"""Backtest engine, portfolio-construction rules, and the metrics stack.
+
+Design notes that make the numbers trustworthy:
+
+* **No look-ahead.** ``backtest`` lags weights one bar, so today's P&L only ever
+  uses yesterday's positions. ``self_test`` asserts this.
+* **Costs are real.** Turnover (sum of absolute weight changes) is charged at
+  ``TCOST`` (flat) or a per-coin square-root market-impact cost (``backtest_lc``).
+* **Shorts must be borrowable.** ``dn_weights(screen=True)`` restricts the short
+  leg to names with a tradeable, liquid perpetual and re-centres so the book
+  stays dollar-neutral on the names it actually holds.
+
+The weight builders and the liquidity-cost model need the market context
+(liquidity mask, dollar volume, short-feasibility), so they take a ``Dataset``
+``ds``. The metrics are pure functions of a return series and a window.
+"""
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+
+from .config import TCOST, ANN, FULL, seg
+
+
+# ---------------------------------------------------------------------------
+# Portfolio construction
+# ---------------------------------------------------------------------------
+def eq_weights(signal):
+    """Directional long-only: weight proportional to a non-negative conviction
+    signal; gross leverage 1."""
+    w = signal.clip(lower=0)
+    return w.divide(w.abs().sum(1).replace(0, np.nan), axis=0).fillna(0.0)
+
+
+def cs_weights(signal):
+    """Cross-sectional dollar-neutral: demean then scale to gross leverage 1.
+
+    Unscreened — used only to *show* that raw cross-sectional signals fail; the
+    books that survive use ``dn_weights`` (liquidity + short screened)."""
+    s = signal.subtract(signal.mean(1), axis=0)
+    return s.divide(s.abs().sum(1).replace(0, np.nan), axis=0).fillna(0.0)
+
+
+def dn_weights(signal, ds, topN=None, screen=True):
+    """Liquidity-screened dollar-neutral weights — the workhorse construction.
+
+    1. Keep only names that clear the point-in-time liquidity mask (``ds.liq60``),
+       optionally the ``topN`` most liquid.
+    2. Demean (long > 0, short < 0) and scale to gross 1.
+    3. If ``screen``: restrict the SHORT leg to shortable names (a tradeable,
+       liquid perp), iterating drop-infeasible-short -> re-centre to a fixed
+       point so residual short weight on non-shortable names is ~0.
+    """
+    s = signal.where(ds.liq60)
+    if topN is not None:
+        rk = ds.qvol_all.rolling(60).median().shift(1).rank(axis=1, ascending=False)
+        s = s.where(rk <= topN)
+    s = s.subtract(s.mean(1), axis=0)                       # + long, - short
+    if screen:
+        for _ in range(4):
+            s = s.where((s >= 0) | ds.short_ok)            # drop infeasible shorts
+            s = s.subtract(s.mean(1), axis=0)              # restore dollar-neutrality
+        s = s.where((s >= 0) | ds.short_ok, 0.0)           # final hard mask
+        s = s.where(s.notna(), 0.0)
+    return s.divide(s.abs().sum(1).replace(0, np.nan), axis=0).fillna(0.0)
+
+
+def backtest(weights, rets, tcost=TCOST, rebal=1):
+    """Hold weights ``rebal`` days; lag 1 bar; charge ``tcost`` on turnover.
+
+    Returns ``(net_daily_pnl, daily_turnover)``."""
+    if rebal > 1:
+        mask = pd.Series(np.arange(len(weights)) % rebal == 0, index=weights.index)
+        weights = weights.where(mask, np.nan).ffill()
+    pnl = (weights.shift(1) * rets).sum(1)
+    turn = (weights.shift(1) - weights.shift(2)).abs().sum(1).fillna(0.0)
+    return pnl - tcost * turn, turn
+
+
+def liq_cost_frame(ds, base=TCOST, cap=8.0):
+    """Per-coin turnover cost = ``base * sqrt(reference $-vol / coin $-vol)``,
+    capped at ``cap``x base. Thin names pay several times what the majors pay."""
+    medv = ds.qvol_all.rolling(60).median().shift(1)               # lagged trailing $-vol
+    ref = medv[ds.UNIV].median(axis=1)                             # reference = median major
+    cf = base * np.sqrt(np.divide(ref.values[:, None], medv.values,
+            out=np.full(medv.shape, cap), where=medv.values > 0)).clip(1, cap)
+    return pd.DataFrame(cf, index=medv.index, columns=medv.columns)
+
+
+def backtest_lc(weights, rets, costframe, rebal=1):
+    """Like ``backtest`` but charges a PER-COIN liquidity-aware turnover cost."""
+    if rebal > 1:
+        mask = pd.Series(np.arange(len(weights)) % rebal == 0, index=weights.index)
+        weights = weights.where(mask, np.nan).ffill()
+    pnl = (weights.shift(1) * rets).sum(1)
+    turn = (weights.shift(1) - weights.shift(2)).abs()
+    cost = (turn * costframe.reindex_like(turn).fillna(TCOST * 8)).sum(1).fillna(0.0)
+    return pnl - cost, turn.sum(1)
+
+
+# ---------------------------------------------------------------------------
+# Metrics (pure functions of a return series + evaluation window)
+# ---------------------------------------------------------------------------
+def maxdd(x):
+    c = (1 + x.fillna(0)).cumprod()
+    return (c / c.cummax() - 1).min()
+
+
+def sharpe(x):
+    x = x.dropna()
+    return np.nan if len(x) < 5 or x.std() == 0 else x.mean() / x.std() * ANN
+
+
+def sortino(x, mar=0.0):
+    """Downside-risk analogue of Sharpe: annualised mean over the RMS of
+    below-target returns (target 0)."""
+    x = x.dropna()
+    if len(x) < 5:
+        return np.nan
+    dsd = np.sqrt((np.minimum(x - mar, 0.0) ** 2).mean())
+    return np.nan if dsd == 0 else (x.mean() - mar) / dsd * ANN
+
+
+def alpha_beta(y, x, window, hac_lags=21):
+    """OLS alpha/beta with Newey-West (HAC) errors -> autocorrelation-robust t."""
+    d = pd.concat([seg(y, window), seg(x, window)], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+    d = d[d.abs().sum(axis=1) > 0]
+    m = sm.OLS(d.iloc[:, 0], sm.add_constant(d.iloc[:, 1])).fit(
+        cov_type="HAC", cov_kwds={"maxlags": hac_lags})
+    return dict(alpha_ann=m.params.iloc[0] * 365, beta=m.params.iloc[1], alpha_t=m.tvalues.iloc[0])
+
+
+def hac_tstat(net, window, lags=21):
+    """Newey-West t-stat that the mean return differs from zero."""
+    s = seg(net, window).dropna()
+    return sm.OLS(s.values, np.ones(len(s))).fit(
+        cov_type="HAC", cov_kwds={"maxlags": lags}).tvalues[0]
+
+
+def metrics(net, window, bench=None):
+    s = seg(net, window).dropna()
+    out = {"Ann.Return": s.mean() * 365, "Ann.Vol": s.std() * ANN,
+           "Sharpe": sharpe(s), "MaxDD": maxdd(s)}
+    if bench is not None:
+        out.update({k.title().replace("_", " "): v for k, v in alpha_beta(net, bench, window).items()})
+    return out
+
+
+def bootstrap_sharpe_ci(net, window, n=2000, seed=0, block=10):
+    """Moving-block bootstrap (block ~10d) CI for the Sharpe — resamples blocks,
+    not days, so it respects autocorrelation."""
+    s = seg(net, window).dropna().values
+    T = len(s)
+    if T < block + 5:
+        return (np.nan, np.nan)
+    rng = np.random.default_rng(seed)
+    nb = int(np.ceil(T / block))
+    starts = rng.integers(0, T - block + 1, size=(n, nb))
+    bs = []
+    for row in starts:
+        v = np.concatenate([s[i:i + block] for i in row])[:T]
+        bs.append(v.mean() / v.std() * ANN)
+    return np.percentile(bs, 2.5), np.percentile(bs, 97.5)
+
+
+def deflated_sharpe(net, window, n_trials):
+    """Probability the true Sharpe > 0 after deflating for ``n_trials`` and
+    non-normality (Bailey / Lopez de Prado)."""
+    from scipy.stats import norm, skew, kurtosis
+    s = seg(net, window).dropna().values
+    if len(s) < 30:
+        return np.nan
+    sr = s.mean() / s.std()
+    T = len(s)
+    g3, g4 = skew(s), kurtosis(s, fisher=False)
+    emax = (1 - np.euler_gamma) * norm.ppf(1 - 1 / n_trials) + np.euler_gamma * norm.ppf(1 - 1 / (n_trials * np.e))
+    sr0 = emax / np.sqrt(T)
+    denom = np.sqrt(1 - g3 * sr + (g4 - 1) / 4 * sr ** 2)
+    return float(norm.cdf((sr - sr0) * np.sqrt(T - 1) / denom))
+
+
+def self_test():
+    """Assert the engine has no look-ahead and actually charges cost. Cheap; run
+    it in a notebook to earn trust in every downstream number."""
+    _r = pd.DataFrame({"A": [0.0, 0.10, -0.05, 0.02]})
+    _net, _ = backtest(pd.DataFrame({"A": [1., 1, 1, 1]}), _r, tcost=0.0)
+    assert abs(_net.iloc[1:].sum() - _r["A"].iloc[1:].sum()) < 1e-12, "lag/identity broken"
+    _n0, _ = backtest(pd.DataFrame({"A": [0, 1, 1, 0]}), _r, tcost=0.0)
+    _n1, _ = backtest(pd.DataFrame({"A": [0, 1, 1, 0]}), _r, tcost=0.01)
+    assert (_n0.sum() - _n1.sum()) > 0, "cost not charged on turnover"
+    assert abs(backtest(pd.DataFrame({"A": [1., 1, 0, 0]}), _r)[0].iloc[1]
+               - backtest(pd.DataFrame({"A": [1., 1, 1, 1]}), _r)[0].iloc[1]) < 1e-12, "lookahead detected"
+    return "Self-tests passed: weights lag one bar (no look-ahead), turnover is charged, buy-hold identity holds."

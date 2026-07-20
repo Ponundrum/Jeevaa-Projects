@@ -11,3 +11,9 @@ __pycache__/
 # Executed notebook outputs produced by nbconvert runs
 notebooks/*_executed.ipynb
 notebooks/*_v1_backup.ipynb
+
+# Local notebook backups / copies (kept on disk, not committed)
+notebooks/*_backup.ipynb
+notebooks/*-Copy*.ipynb
+docs/*.png
+!docs/combined_book.png
