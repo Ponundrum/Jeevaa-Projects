@@ -14,11 +14,13 @@ The weight builders and the liquidity-cost model need the market context
 (liquidity mask, dollar volume, short-feasibility), so they take a ``Dataset``
 ``ds``. The metrics are pure functions of a return series and a window.
 """
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from .config import TCOST, ANN, RF, FULL, seg
+from .config import TCOST, ANN, RF, seg
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +86,26 @@ def backtest(weights, rets, tcost=TCOST, rebal=1):
     pnl = (weights.shift(1) * rets).sum(1)
     turn = (weights.shift(1) - weights.shift(2)).abs().sum(1).fillna(0.0)
     return pnl - tcost * turn, turn
+
+
+def backtest_carry(spot, perp, funding, symbols, capture=0.85, drag=0.02, rebal=7, tcost=TCOST):
+    """Funding-carry sleeve, under the same tested roof as the other books (P2.6).
+
+    Long spot / short perpetual, equal-weighting the pairs available each day,
+    rebalanced every ``rebal`` days, with turnover charged on BOTH legs plus a
+    financing ``drag`` (annual). ``capture`` is the fraction of funding actually
+    realised. Returns ``(net_daily_pnl, daily_turnover)``. With ``capture=1,
+    drag=0`` it is the idealised full-capture version. Funding is contemporaneous
+    (the §4 integrity check confirms lagging it one day barely moves the result)."""
+    sr = spot[symbols].pct_change(fill_method=None)
+    pr = perp[symbols].pct_change(fill_method=None)
+    avail = (spot[symbols].notna() & perp[symbols].notna()).astype(float)
+    w = avail.div(avail.sum(1).replace(0, np.nan), axis=0)
+    mask = pd.Series(np.arange(len(w)) % rebal == 0, index=w.index)
+    w = w.where(mask, np.nan).ffill()
+    turn = (w.shift(1) - w.shift(2)).abs().sum(1).fillna(0.0)
+    pnl = (w.shift(1) * (sr - pr + capture * funding[symbols])).sum(1) - 2 * tcost * turn - drag / 365
+    return pnl, turn
 
 
 def maintenance_turnover(weights, rets, rebal):

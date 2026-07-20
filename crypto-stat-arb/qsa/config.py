@@ -14,8 +14,14 @@ from pathlib import Path
 import numpy as np
 
 # ---- Paths ----------------------------------------------------------------
-DATA = Path("crypto_data/processed")          # cached parquet lives here
-ARCHIVE = Path("crypto_data/_archive")        # raw Binance zips cached here
+# Anchor the cache to the project root (the directory above the qsa package), NOT the
+# current working directory, so notebooks (run from notebooks/) and scripts (run from
+# the project root) share one cache and no code path re-downloads because of where it
+# happened to be launched. Overridable with the QSA_DATA_DIR env var.
+import os
+_ROOT = Path(os.environ.get("QSA_DATA_DIR", Path(__file__).resolve().parent.parent))
+DATA = _ROOT / "crypto_data" / "processed"    # cached parquet lives here
+ARCHIVE = _ROOT / "crypto_data" / "_archive"  # raw Binance zips cached here
 
 # ---- Cost / annualisation -------------------------------------------------
 # The 20 bps all-in turnover cost, itemised (P1.5) so it is a defensible stack, not a magic number:

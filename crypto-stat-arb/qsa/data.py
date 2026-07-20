@@ -11,6 +11,8 @@ free of survivorship bias. ``Dataset.load()`` returns one object holding every
 frame the strategies need, plus the liquidity / short-feasibility masks and the
 BTC-residualised returns.
 """
+from __future__ import annotations
+
 import io
 import json
 import time
@@ -29,6 +31,9 @@ from .config import DATA, ARCHIVE, TRAIN, seg
 # data.binance.vision with many workers invites rate-limiting (429), which — with
 # the retry/backoff below — we would rather avoid than have to recover from.
 MAX_WORKERS = 8
+
+# Narrow set of errors a malformed/short archive CSV can raise (P3.6: don't swallow everything).
+_PARSE_ERRORS = (zipfile.BadZipFile, ValueError, KeyError, pd.errors.ParserError, pd.errors.EmptyDataError)
 
 # --- 379-coin point-in-time spot pool (incl. since-delisted names) ---------
 SPOT_SYMBOLS = [s + "USDT" for s in (
@@ -87,9 +92,32 @@ _NEED = ["close_1d_full", "high_1d_full", "low_1d_full", "quote_volume_1d_full",
          "taker_buy_base_volume_1d_full", "funding_daily_full", "perp_close_1d_full"]
 
 
+def _to_utc(vals):
+    """Parse Binance epoch timestamps to a UTC index (P2.7). Binance switched some
+    archives from milliseconds to microseconds in ~2025, so instead of a single
+    magnitude threshold this tries both units and keeps the one whose dates land in
+    a sane range (2017-2027). Guards against a silent unit misparse corrupting the
+    index without any error."""
+    v = pd.to_numeric(vals, errors="coerce")
+    best = None
+    for unit in ("ms", "us"):
+        try:
+            idx = pd.to_datetime(v, unit=unit, utc=True)         # wrong unit can overflow -> skip it
+        except (pd.errors.OutOfBoundsDatetime, OverflowError, ValueError):
+            continue
+        years = pd.DatetimeIndex(np.asarray(idx)).year          # works for Series or Index input
+        frac = float(((years >= 2017) & (years <= 2027)).mean())
+        if frac > 0.95:
+            return idx
+        if best is None or frac > best[1]:
+            best = (idx, frac)
+    if best is None:
+        return pd.to_datetime(v, unit="ms", utc=True, errors="coerce")
+    return best[0]
+
+
 def _utc(ms):
-    ms = pd.to_numeric(ms, errors="coerce")
-    return pd.to_datetime(ms, unit=("us" if ms.max() > 10 ** 14 else "ms"), utc=True)
+    return _to_utc(ms)
 
 
 def _download_cached(url, fp, retries=3):
@@ -141,7 +169,7 @@ def _spot_one(sym):
             continue
         try:
             d = _csv(b, names=_KC)
-        except Exception:
+        except _PARSE_ERRORS:
             continue
         d = d[pd.to_numeric(d["open_time"], errors="coerce").notna()]
         if len(d):
@@ -150,9 +178,9 @@ def _spot_one(sym):
     if not fr:
         return sym, None
     x = pd.concat(fr).sort_index()
-    x = x[~x.index.duplicated(keep="last")]
-    x.index = x.index.normalize()
-    return sym, x
+    x.index = x.index.normalize()                          # collapse to calendar date first ...
+    x = x[~x.index.duplicated(keep="last")]                # ... then dedupe, so a month-boundary overlap
+    return sym, x                                          # can't leave two rows on the same date
 
 
 def _fut_one(sym):
@@ -164,7 +192,7 @@ def _fut_one(sym):
             continue
         try:
             d = _csv(b, header=0)
-        except Exception:
+        except _PARSE_ERRORS:
             continue
         if "calc_time" in d and "last_funding_rate" in d:
             fr.append(pd.Series(d["last_funding_rate"].values, index=_utc(d["calc_time"])))
@@ -177,12 +205,17 @@ def _fut_one(sym):
             continue
         try:
             d = _csv(b, names=_KC)
-        except Exception:
+        except _PARSE_ERRORS:
             continue
         d = d[pd.to_numeric(d["open_time"], errors="coerce").notna()]
         if len(d):
             pr.append(pd.Series(pd.to_numeric(d["close"]).values, index=_utc(d["open_time"])))
-    perp = (pd.concat(pr).sort_index().pipe(lambda c: c[~c.index.duplicated(keep="last")])) if pr else None
+    if pr:
+        perp = pd.concat(pr).sort_index()
+        perp.index = perp.index.normalize()               # date-collapse then dedupe (as in _spot_one)
+        perp = perp[~perp.index.duplicated(keep="last")]
+    else:
+        perp = None
     return sym, fund, perp
 
 
@@ -345,12 +378,11 @@ def _bar_series(base, sym, tag, freq, cache):
         try:
             with zipfile.ZipFile(io.BytesIO(b)) as z, z.open(z.namelist()[0]) as f:
                 d = pd.read_csv(f, header=None, usecols=[0, 4], names=["t", "c"])
-        except Exception:
+        except _PARSE_ERRORS:
             continue
         d = d[pd.to_numeric(d["t"], errors="coerce").notna()]
         if len(d):
-            t = pd.to_numeric(d["t"])
-            idx = pd.to_datetime(t, unit=("us" if t.max() > 1e14 else "ms"), utc=True)
+            idx = _to_utc(d["t"])
             fr.append(pd.Series(pd.to_numeric(d["c"]).values, index=idx))
     if not fr:
         return None

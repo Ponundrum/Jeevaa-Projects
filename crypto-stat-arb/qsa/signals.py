@@ -10,6 +10,8 @@ live here so the combined-book notebook and the signal-research notebook read
 from exactly the same definitions — no divergence between "the version I traded"
 and "the version I tested".
 """
+from __future__ import annotations
+
 import numpy as np
 
 
