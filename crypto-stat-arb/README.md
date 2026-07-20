@@ -45,7 +45,11 @@ Read it in this order:
    and idiosyncratic reversal, 4-hour intraday, order-flow, lottery/skew, Amihud illiquidity, funding-as-
    signal, seasonality, composites, cointegration pairs) coded from scratch and run with the *same* engine
    and costs, each failing one of four nameable traps.
-4. **[`qsa/`](qsa/)** — the toolkit both notebooks import, so the notebooks read as research, not plumbing:
+3. **[`notebooks/03_walkforward.ipynb`](notebooks/03_walkforward.ipynb)** — an anchored walk-forward that
+   re-fits the sleeve weights each quarter on past-only data and concatenates the out-of-sample pieces into
+   one continuous 2021–2026 track. It reproduces the fixed-split result without ever setting a weight from a
+   future return, answering the "you only saw one holdout" objection.
+4. **[`qsa/`](qsa/)** — the toolkit the notebooks import, so they read as research, not plumbing:
    - `data.py` — self-contained downloader + point-in-time `Dataset`
    - `engine.py` — backtest, dollar-neutral construction, liquidity/short screens, metrics stack
    - `signals.py` — every signal formula (survivors and rejects) in one place
