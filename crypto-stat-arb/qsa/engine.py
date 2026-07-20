@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-from .config import TCOST, ANN, FULL, seg
+from .config import TCOST, ANN, RF, FULL, seg
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +136,14 @@ def maxdd(x):
 # in the project — the headline, its bootstrap CI, and its deflated version — so the
 # CI and DSR correspond exactly to the point estimate they annotate. pandas .std()
 # defaults to ddof=1; the NumPy paths below pass ddof=1 explicitly to match.
-def sharpe(x):
+def sharpe(x, rf=RF):
+    """Annualised Sharpe. ``rf`` is the annual risk-free rate, defaulting to
+    ``config.RF`` (0) — see the note there: the books are dollar-neutral and
+    self-funding, so excess return ~= raw return."""
     x = x.dropna()
-    return np.nan if len(x) < 5 or x.std() == 0 else x.mean() / x.std() * ANN
+    if len(x) < 5 or x.std() == 0:
+        return np.nan
+    return (x.mean() - rf / 365) / x.std() * ANN
 
 
 def sortino(x, mar=0.0):
@@ -158,6 +163,22 @@ def alpha_beta(y, x, window, hac_lags=21):
     m = sm.OLS(d.iloc[:, 0], sm.add_constant(d.iloc[:, 1])).fit(
         cov_type="HAC", cov_kwds={"maxlags": hac_lags})
     return dict(alpha_ann=m.params.iloc[0] * 365, beta=m.params.iloc[1], alpha_t=m.tvalues.iloc[0])
+
+
+def hac_ols(y, X, window, hac_lags=21):
+    """Multi-factor OLS of return series ``y`` on a DataFrame of factor returns
+    ``X`` (P1.4), with Newey-West (HAC) errors. Returns the annualised alpha and
+    its t-stat plus each factor's beta and t. Lets you check the book's alpha
+    survives controlling for more than just BTC beta."""
+    d = pd.concat([seg(y, window).rename("y"), seg(X, window)], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+    d = d[d.abs().sum(axis=1) > 0]
+    m = sm.OLS(d["y"], sm.add_constant(d.drop(columns="y"))).fit(
+        cov_type="HAC", cov_kwds={"maxlags": hac_lags})
+    out = {"alpha_ann": m.params["const"] * 365, "alpha_t": m.tvalues["const"]}
+    for f in X.columns:
+        out[f"{f} beta"] = m.params[f]
+        out[f"{f} t"] = m.tvalues[f]
+    return out
 
 
 def hac_tstat(net, window, lags=21):
@@ -191,6 +212,32 @@ def bootstrap_sharpe_ci(net, window, n=2000, seed=0, block=10):
         v = np.concatenate([s[i:i + block] for i in row])[:T]
         bs.append(v.mean() / v.std(ddof=1) * ANN)                 # ddof=1 to match sharpe()
     return np.percentile(bs, 2.5), np.percentile(bs, 97.5)
+
+
+def sharpe_diff_test(a, b, window, n=2000, seed=0, block=10):
+    """Is strategy ``a``'s Sharpe *significantly* higher than benchmark ``b``'s?
+    (P1.3) Paired moving-block bootstrap of ``sharpe(a) - sharpe(b)`` over
+    ``window``, resampling the SAME block indices from both series so the pairing
+    (and their correlation) is preserved. Returns the observed annualised
+    difference, its 95% CI, and a two-sided bootstrap p-value that the true
+    difference is zero."""
+    d = pd.concat([seg(a, window), seg(b, window)], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+    A, B = d.iloc[:, 0].values, d.iloc[:, 1].values
+    T = len(A)
+    if T < block + 5:
+        return {"diff_ann": np.nan, "ci": (np.nan, np.nan), "p": np.nan}
+    _sr = lambda v: v.mean() / v.std(ddof=1) * ANN
+    obs = _sr(A) - _sr(B)
+    rng = np.random.default_rng(seed)
+    nb = int(np.ceil(T / block))
+    diffs = np.empty(n)
+    for k in range(n):
+        starts = rng.integers(0, T - block + 1, size=nb)
+        idx = np.concatenate([np.arange(s, s + block) for s in starts])[:T]
+        diffs[k] = _sr(A[idx]) - _sr(B[idx])
+    lo, hi = np.percentile(diffs, [2.5, 97.5])
+    p = 2 * min((diffs <= 0).mean(), (diffs >= 0).mean())     # two-sided
+    return {"diff_ann": obs, "ci": (lo, hi), "p": min(p, 1.0)}
 
 
 def deflated_sharpe(net, window, n_trials):
