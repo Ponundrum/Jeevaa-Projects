@@ -24,6 +24,8 @@ after discounting for ~140 configurations searched).
 | BTC (benchmark) | +1.00 | +0.72 | +1.09 | +34.8% | −77% | 0.06 |
 | Equal-weight (benchmark) | +1.52 | +0.15 | +0.21 | +9.6% | −78% | 0.01 |
 
+![In-sample vs out-of-sample Sharpe by strategy](docs/scoreboard.png)
+
 The three sleeves are near-uncorrelated with each other and have β ≈ 0 to BTC, so the combined book
 (inverse-volatility weighted, carry capped at 50%) is far steadier than any single sleeve. It is positive in
 six of seven years and still clears +1.3 out-of-sample under a liquidity-aware square-root market-impact
