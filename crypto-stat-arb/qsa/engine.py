@@ -67,13 +67,40 @@ def dn_weights(signal, ds, topN=None, screen=True):
 def backtest(weights, rets, tcost=TCOST, rebal=1):
     """Hold weights ``rebal`` days; lag 1 bar; charge ``tcost`` on turnover.
 
-    Returns ``(net_daily_pnl, daily_turnover)``."""
+    Returns ``(net_daily_pnl, daily_turnover)``.
+
+    Convention (P0.4): between rebalances the target weights are held CONSTANT and
+    P&L is computed on those constant weights; turnover is charged only at
+    rebalance points (the jump from last period's weights to this period's). The
+    small daily trades that would be needed to *hold* weights constant as prices
+    drift are not charged here — a standard simplification for low-turnover weekly
+    books. ``maintenance_turnover`` estimates that omitted cost, and §4 shows it
+    barely moves the headline (Appendix A documents the choice). With ``rebal=1``
+    (the engine self-test) every bar is a rebalance, so the question doesn't arise.
+    """
     if rebal > 1:
         mask = pd.Series(np.arange(len(weights)) % rebal == 0, index=weights.index)
         weights = weights.where(mask, np.nan).ffill()
     pnl = (weights.shift(1) * rets).sum(1)
     turn = (weights.shift(1) - weights.shift(2)).abs().sum(1).fillna(0.0)
     return pnl - tcost * turn, turn
+
+
+def maintenance_turnover(weights, rets, rebal):
+    """Estimate the daily turnover needed to HOLD target weights constant as prices
+    drift between rebalances (the cost ``backtest`` omits — see its docstring).
+
+    On a non-rebalance day each position's weight drifts by ~``w_i*(ret_i - r_book)``;
+    trading it back to target costs that much turnover. Zero on rebalance days (that
+    trade is already counted in ``backtest``'s turnover). Use it to price the
+    worst-case extra cost and show the low-turnover sleeves survive it."""
+    mask = pd.Series(np.arange(len(weights)) % rebal == 0, index=weights.index)
+    w = weights.where(mask, np.nan).ffill()
+    r_book = (w.shift(1) * rets).sum(1)                         # book return each day
+    drift = w.shift(1).mul(rets).sub(w.shift(1).mul(r_book, axis=0))   # per-name weight drift
+    mt = drift.abs().sum(1)
+    mt[mask.values] = 0.0                                        # folded into rebalance turnover
+    return mt.fillna(0.0)
 
 
 def liq_cost_frame(ds, base=TCOST, cap=8.0):
@@ -105,6 +132,10 @@ def maxdd(x):
     return (c / c.cummax() - 1).min()
 
 
+# Std convention (P0.3): sample standard deviation (ddof=1) is used for EVERY Sharpe
+# in the project — the headline, its bootstrap CI, and its deflated version — so the
+# CI and DSR correspond exactly to the point estimate they annotate. pandas .std()
+# defaults to ddof=1; the NumPy paths below pass ddof=1 explicitly to match.
 def sharpe(x):
     x = x.dropna()
     return np.nan if len(x) < 5 or x.std() == 0 else x.mean() / x.std() * ANN
@@ -158,7 +189,7 @@ def bootstrap_sharpe_ci(net, window, n=2000, seed=0, block=10):
     bs = []
     for row in starts:
         v = np.concatenate([s[i:i + block] for i in row])[:T]
-        bs.append(v.mean() / v.std() * ANN)
+        bs.append(v.mean() / v.std(ddof=1) * ANN)                 # ddof=1 to match sharpe()
     return np.percentile(bs, 2.5), np.percentile(bs, 97.5)
 
 
@@ -169,7 +200,7 @@ def deflated_sharpe(net, window, n_trials):
     s = seg(net, window).dropna().values
     if len(s) < 30:
         return np.nan
-    sr = s.mean() / s.std()
+    sr = s.mean() / s.std(ddof=1)                                # ddof=1 to match sharpe()
     T = len(s)
     g3, g4 = skew(s), kurtosis(s, fisher=False)
     emax = (1 - np.euler_gamma) * norm.ppf(1 - 1 / n_trials) + np.euler_gamma * norm.ppf(1 - 1 / (n_trials * np.e))
