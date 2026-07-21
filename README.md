@@ -25,6 +25,24 @@ data. &nbsp;→ **[Read the project](crypto-stat-arb/)**
 
 ![Combined book vs buy-and-hold](crypto-stat-arb/docs/combined_book.png)
 
+## 2 · Monte Carlo Derivatives Pricing & Rough Volatility &nbsp;·&nbsp; [`options-mc-engine/`](options-mc-engine/)
+
+A from-scratch Monte Carlo option-pricing engine — **proven correct against closed-form Black–Scholes to within
+Monte Carlo error** — then extended to exotics, the Heston model, and **rough Bergomi** (rough volatility
+simulated by covariance decomposition). The complementary skill set to project 1: stochastic calculus,
+numerical methods, variance reduction, and model calibration, where correctness is provable against
+mathematics rather than a dataset.
+
+**On a live SPY option-chain snapshot, rough volatility (calibrated Hurst H ≈ 0.07) matches the steep
+short-dated skew that classical Heston structurally flattens.** European MC matches Black–Scholes within 3
+standard errors; the control-variate estimator cuts Asian-option variance ~1300×; simulated rough paths
+verifiably recover their Hurst exponent.
+
+A Python package (`qmc`) implements every model from scratch (no QuantLib); two notebooks tell the story — the
+engine proven correct, and the volatility surface with rough-vol calibration. &nbsp;→ **[Read the project](options-mc-engine/)**
+
+![Short-dated smile: rough volatility matches the steeper skew](options-mc-engine/docs/rough_vol_smile.png)
+
 ---
 
 *More projects coming.*

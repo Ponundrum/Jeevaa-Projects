@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  crypto-stat-arb:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -20,5 +20,22 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check qsa tests
+      - name: Test
+        run: pytest -q
+
+  options-mc-engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: options-mc-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check qmc tests
       - name: Test
         run: pytest -q
