@@ -1,5 +1,7 @@
 # Crypto Statistical Arbitrage
 
+[![CI](https://github.com/Ponundrum/Jeevaa-Projects/actions/workflows/ci.yml/badge.svg)](https://github.com/Ponundrum/Jeevaa-Projects/actions/workflows/ci.yml)
+
 A market-neutral crypto book built from three uncorrelated edges — **momentum**, **low-volatility**, and
 **funding carry** — and the full, honest search behind it. Designed on 2020–2023, tested out-of-sample on
 2024–2026, net of a 20 bps turnover cost, with shorts restricted to coins that have a tradeable perpetual.
