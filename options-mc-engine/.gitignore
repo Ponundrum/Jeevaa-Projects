@@ -1,0 +1,11 @@
+# Cached market-data snapshots
+_cache/
+**/_cache/
+
+# Python / Jupyter artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.DS_Store
+*.egg-info/
