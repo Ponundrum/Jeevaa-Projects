@@ -63,7 +63,7 @@ def option_chain_snapshot(ticker="SPY", n_expiries=8, moneyness=(0.80, 1.20),
         tk = yf.Ticker(ticker)
         spot = float(tk.history(period="5d")["Close"].dropna().iloc[-1])
         r = _rate_from_irx()
-        asof = pd.Timestamp.utcnow().tz_localize(None).normalize()
+        asof = pd.Timestamp.now("UTC").tz_localize(None).normalize()   # utcnow() is deprecated
         # Select expiries spread GEOMETRICALLY across the maturity band, so the
         # snapshot is a proper term structure (short-dated to ~1y), not just the
         # nearest weeklies.
