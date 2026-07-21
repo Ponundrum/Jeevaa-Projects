@@ -55,11 +55,16 @@ def calibrate_heston(market, S, r, n_paths=40_000, steps_per_year=100, seed=123,
     ub = [0.5, 15.0, 0.5, 3.0, 0.0]
     sol = least_squares(resid, x0, bounds=(lb, ub), max_nfev=max_nfev, verbose=0)
     params = dict(zip(["v0", "kappa", "theta", "xi", "rho"], sol.x))
+    # Feller condition 2*kappa*theta >= xi^2: when the ratio < 1 the variance hits zero
+    # often (the QE scheme handles it, but it's a regime worth flagging).
+    params["feller_ratio"] = 2 * params["kappa"] * params["theta"] / params["xi"] ** 2
     model_iv = _model_ivs(simulate(sol.x), market, S, r)
     rmse = float(np.sqrt(np.nanmean((model_iv - mkt_iv) ** 2)))
     if verbose:
-        print(f"Heston calibrated: {', '.join(f'{k}={v:.3f}' for k, v in params.items())} | "
-              f"IV RMSE {rmse * 100:.2f} vol points")
+        feller = params["feller_ratio"]
+        print(f"Heston calibrated: {', '.join(f'{k}={v:.3f}' for k, v in params.items() if k != 'feller_ratio')} | "
+              f"IV RMSE {rmse * 100:.2f} vol points | Feller 2kt/xi^2 = {feller:.2f} "
+              f"({'satisfied' if feller >= 1 else 'VIOLATED — variance touches zero, QE handles it'})")
     return params, rmse, model_iv
 
 
