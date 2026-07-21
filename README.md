@@ -1,7 +1,9 @@
-# Projects
+# Quantitative Finance Projects
 
-Quantitative research and data-science projects. Each folder is self-contained — its own code, data
-pipeline, and write-up — and runs end-to-end from a clean checkout.
+Two self-contained projects that cover the two halves of quant — **the research and the pricing**. One finds
+and validates market-neutral *alpha* in real crypto data; the other builds and *proves* a derivatives-pricing
+engine from first principles, against closed-form mathematics. Each folder runs end-to-end from a clean
+checkout, with its own tests, CI, and honest-limitations write-up.
 
 ## 1 · Crypto Statistical Arbitrage &nbsp;·&nbsp; [`crypto-stat-arb/`](crypto-stat-arb/)
 
