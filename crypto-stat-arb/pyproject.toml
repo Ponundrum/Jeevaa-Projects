@@ -25,6 +25,7 @@ packages = ["qsa"]
 
 [tool.ruff]
 line-length = 120
+exclude = ["scripts", "notebooks"]
 
 [tool.ruff.lint]
 # Keep it light: the notebooks favour terse, packed research code by design.

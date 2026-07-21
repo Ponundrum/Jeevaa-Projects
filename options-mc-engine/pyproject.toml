@@ -24,6 +24,7 @@ packages = ["qmc"]
 
 [tool.ruff]
 line-length = 120
+exclude = ["scripts", "notebooks"]
 
 [tool.ruff.lint]
 ignore = ["E402", "E741", "E731"]

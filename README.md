@@ -42,7 +42,3 @@ A Python package (`qmc`) implements every model from scratch (no QuantLib); two 
 engine proven correct, and the volatility surface with rough-vol calibration. &nbsp;→ **[Read the project](options-mc-engine/)**
 
 ![Short-dated smile: rough volatility matches the steeper skew](options-mc-engine/docs/rough_vol_smile.png)
-
----
-
-*More projects coming.*

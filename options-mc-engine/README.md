@@ -22,9 +22,12 @@ Everything below is demonstrated in a notebook or a test — no tolerance was ev
 | European MC vs Black–Scholes (strike × maturity grid) | within **3 standard errors** everywhere (max 1.9) |
 | Put–call parity on the engine's own prices | holds to MC error |
 | Geometric-Asian MC vs its **closed form** (exact path-dependent check) | 1.2 SE apart |
+| Barrier / lookback vs **continuous closed forms** (Reiner–Rubinstein, Goldman–Sosin–Gatto) | match under the **Broadie–Glasserman–Kou** discrete-monitoring correction |
 | Variance reduction (control variate) | **7×** on the European, **1300×** on the arithmetic Asian |
 | Convergence rate | measured log-log slope **−0.55** (theory −0.5) |
 | Greeks (pathwise / likelihood-ratio / finite-difference) | all agree with analytic delta, vega, gamma |
+| Digital delta — the discontinuous case | **likelihood-ratio matches** the closed form where pathwise is structurally zero |
+| **Crank–Nicolson PDE** (a second, independent method) | European matches Black–Scholes to ~1e-3; prices the **American** early-exercise premium |
 | Implied-vol inversion | round-trips a known vol to **1e-6** |
 | SVI surface fit | butterfly-arbitrage-free; ~0.3 vol-pt slice RMSE |
 | Heston calibration to SPY | **0.87 vol-point** IV RMSE (ρ = −0.71) |
@@ -41,9 +44,10 @@ Read it in this order:
    SPY implied-vol surface, an arbitrage-free SVI fit, a Heston calibration, and the rough-Bergomi payoff:
    verifiable roughness and the short-dated skew.
 3. **[`qmc/`](qmc/)** — the toolkit the notebooks import (models implemented from scratch — no QuantLib):
-   `analytic.py` (Black–Scholes + geometric-Asian closed forms), `processes.py` (GBM, Heston QE, rough Bergomi),
-   `payoffs.py`, `engine.py` (estimator + variance reduction + convergence), `greeks.py`, `iv.py`,
-   `calibration.py`, `data.py`, `selftest.py`.
+   `analytic.py` (Black–Scholes, geometric-Asian, barrier, lookback, digital closed forms), `processes.py`
+   (GBM, Heston QE, rough Bergomi), `payoffs.py`, `engine.py` (estimator + variance reduction + convergence +
+   BGK correction), `greeks.py`, `pde.py` (Crank–Nicolson + American), `iv.py`, `calibration.py`, `data.py`,
+   `selftest.py`.
 
 ![Monte Carlo convergence](docs/convergence.png)
 
@@ -68,6 +72,10 @@ failure gracefully.
   multi-day study this is not). Nothing here trades.
 - **Compute.** The rough driver uses the exact `O(n^3)` Cholesky construction for transparency; production
   would use the Bennedsen–Lunde–Pakkanen hybrid scheme (`O(n log n)`) or a Fourier method.
+- **Flat forward variance.** Rough Bergomi uses a scalar `xi0`, not a forward-variance *curve* `xi0(t)`
+  bootstrapped from the ATM term structure — it matches the smile shape, not the ATM term structure by
+  construction. And a calibrated Heston fit can land in Feller-violating territory (`2κθ < ξ²`); the QE scheme
+  handles it, and the notebook reports the Feller ratio rather than passing over it.
 - **Deep-OTM short-dated options** are hard for plain Monte Carlo (few paths reach them); the smile comparison
   is shown on the moneyness band where the estimator is reliable, and says so.
 - **Calendar arbitrage:** the per-maturity SVI fit is butterfly-arbitrage-free, but independent slices can
