@@ -14,6 +14,7 @@ with ``b >= 0``, ``|rho| < 1``, ``s > 0``, and ``a + b s sqrt(1 - rho^2) >= 0``
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import least_squares
 
 from .analytic import bs_implied_vol
@@ -27,10 +28,11 @@ def implied_vol_surface(chain, S, r, q=0.0):
     ``T`` (years), ``K`` (strike), ``price`` (mid), ``kind`` ('call'/'put'). Also
     returns log-moneyness ``k = ln(K/F)`` and total variance ``w = iv^2 T``."""
     out = chain.copy()
-    F = S * np.exp((r - q) * out["T"])
+    qcol = out["q"] if "q" in out else pd.Series(q, index=out.index)       # per-expiry dividend if present
+    F = out["F"] if "F" in out else S * np.exp((r - qcol) * out["T"])      # market-implied forward if present
     out["k"] = np.log(out["K"] / F)
-    out["iv"] = [bs_implied_vol(p, S, K, T, r, q, kind)
-                 for p, K, T, kind in zip(out["price"], out["K"], out["T"], out["kind"])]
+    out["iv"] = [bs_implied_vol(p, S, K, T, r, qq, kind)
+                 for p, K, T, kind, qq in zip(out["price"], out["K"], out["T"], out["kind"], qcol)]
     out["w"] = out["iv"] ** 2 * out["T"]
     return out.dropna(subset=["iv"])
 
