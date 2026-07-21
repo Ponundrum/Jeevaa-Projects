@@ -36,12 +36,13 @@ def calibrate_heston(market, S, r, n_paths=40_000, steps_per_year=100, seed=123,
     ``T, K, kind, q, iv``). Returns ``(params_dict, rmse_volpts, model_iv)``."""
     Ts = sorted(market["T"].unique())
     steps = {T: max(20, int(T * steps_per_year)) for T in Ts}
+    q_by_T = market.groupby("T")["q"].first().to_dict()      # each expiry priced on its OWN forward (P1.3)
     mkt_iv = market["iv"].values
 
     def simulate(params):
         v0, kappa, theta, xi, rho = params
         g = get_rng(seed)                                    # common random numbers -> smooth objective
-        return {T: processes.simulate_heston(S, v0, kappa, theta, xi, rho, r, market["q"].iloc[0],
+        return {T: processes.simulate_heston(S, v0, kappa, theta, xi, rho, r, q_by_T[T],
                                              T, steps[T], n_paths, g) for T in Ts}
 
     def resid(params):
@@ -70,6 +71,7 @@ def calibrate_rough_bergomi(market, S, r, xi0=None, n_paths=20_000, steps_per_ye
     (the fractional driver needs a Cholesky per maturity), so use a small grid."""
     Ts = sorted(market["T"].unique())
     steps = {T: max(30, int(T * steps_per_year)) for T in Ts}
+    q_by_T = market.groupby("T")["q"].first().to_dict()      # each expiry priced on its OWN forward (P1.3)
     mkt_iv = market["iv"].values
     if xi0 is None:
         near = market[market["T"] == Ts[0]]
@@ -78,7 +80,7 @@ def calibrate_rough_bergomi(market, S, r, xi0=None, n_paths=20_000, steps_per_ye
     def simulate(params):
         eta, rho, H = params
         g = get_rng(seed)
-        return {T: processes.simulate_rough_bergomi(S, xi0, eta, rho, H, r, market["q"].iloc[0],
+        return {T: processes.simulate_rough_bergomi(S, xi0, eta, rho, H, r, q_by_T[T],
                                                     T, steps[T], n_paths, g) for T in Ts}
 
     def resid(params):
