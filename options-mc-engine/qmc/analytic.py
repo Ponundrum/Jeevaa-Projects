@@ -82,6 +82,59 @@ def put_call_parity_gap(call, put, S, K, T, r, q=0.0):
     return call - put - (S * np.exp(-q * T) - K * np.exp(-r * T))
 
 
+def barrier_price(S, K, B, T, r, sigma, q=0.0, kind="call", style="down-and-out"):
+    """Reiner-Rubinstein closed form for a **continuously-monitored** single-barrier
+    option (no rebate). ``style`` in {down-and-out, down-and-in, up-and-out,
+    up-and-in}. Knock-in + knock-out = the vanilla, so the 'out' price is obtained
+    as vanilla - 'in'. This is the continuous-limit benchmark the discretely-
+    monitored Monte Carlo barrier converges to (with the O(1/sqrt(m)) bias the
+    notebook corrects)."""
+    b = r - q
+    phi = 1.0 if kind == "call" else -1.0
+    down = "down" in style
+    eta = 1.0 if down else -1.0
+    sT = sigma * np.sqrt(T)
+    mu = (b - 0.5 * sigma ** 2) / sigma ** 2
+    x1 = np.log(S / K) / sT + (1 + mu) * sT
+    x2 = np.log(S / B) / sT + (1 + mu) * sT
+    y1 = np.log(B ** 2 / (S * K)) / sT + (1 + mu) * sT
+    y2 = np.log(B / S) / sT + (1 + mu) * sT
+    A = phi * S * np.exp((b - r) * T) * norm.cdf(phi * x1) - phi * K * np.exp(-r * T) * norm.cdf(phi * x1 - phi * sT)
+    Bb = phi * S * np.exp((b - r) * T) * norm.cdf(phi * x2) - phi * K * np.exp(-r * T) * norm.cdf(phi * x2 - phi * sT)
+    C = (phi * S * np.exp((b - r) * T) * (B / S) ** (2 * (mu + 1)) * norm.cdf(eta * y1)
+         - phi * K * np.exp(-r * T) * (B / S) ** (2 * mu) * norm.cdf(eta * y1 - eta * sT))
+    D = (phi * S * np.exp((b - r) * T) * (B / S) ** (2 * (mu + 1)) * norm.cdf(eta * y2)
+         - phi * K * np.exp(-r * T) * (B / S) ** (2 * mu) * norm.cdf(eta * y2 - eta * sT))
+    # knock-IN prices (Haug's case table), split on strike vs barrier
+    if kind == "call" and down:
+        kin = C if K >= B else A - Bb + D
+    elif kind == "call" and not down:
+        kin = A if K >= B else Bb - C + D
+    elif kind == "put" and down:
+        kin = Bb - C + D if K >= B else A
+    else:  # put, up
+        kin = A - Bb + D if K >= B else C
+    vanilla = bs_price(S, K, T, r, sigma, q, kind)
+    return kin if "in" in style else vanilla - kin
+
+
+def lookback_floating_price(S, T, r, sigma, q=0.0, kind="call"):
+    """Goldman-Sosin-Gatto closed form for a newly-issued **floating-strike**
+    lookback (running extreme = spot). Call pays ``S_T - min``, put ``max - S_T``.
+    Continuous-monitoring benchmark for the Monte Carlo lookback."""
+    b = r - q
+    sT = sigma * np.sqrt(T)
+    a1 = (b + 0.5 * sigma ** 2) * T / sT               # running extreme = spot, so ln(S/extreme)=0
+    a2 = a1 - sT
+    g = 2 * b * np.sqrt(T) / sigma
+    if kind == "call":
+        return (S * np.exp(-q * T) * norm.cdf(a1) - S * np.exp(-r * T) * norm.cdf(a2)
+                + S * np.exp(-r * T) * (sigma ** 2 / (2 * b)) * (norm.cdf(-a1 + g) - np.exp(b * T) * norm.cdf(-a1)))
+    else:
+        return (S * np.exp(-r * T) * norm.cdf(-a2) - S * np.exp(-q * T) * norm.cdf(-a1)
+                + S * np.exp(-r * T) * (sigma ** 2 / (2 * b)) * (-norm.cdf(a1 - g) + np.exp(b * T) * norm.cdf(a1)))
+
+
 def digital_price(S, K, T, r, sigma, q=0.0, kind="call", cash=1.0):
     """Cash-or-nothing digital: pays ``cash`` if in-the-money at expiry.
     Price = ``cash * e^{-rT} N(±d2)``."""

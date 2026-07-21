@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from qmc.analytic import (bs_price, bs_greeks, bs_implied_vol, put_call_parity_gap,
-                          geometric_asian_price)
+                          geometric_asian_price, barrier_price, lookback_floating_price,
+                          digital_price, digital_delta)
 
 S, K, T, r, SIG, Q = 100.0, 100.0, 1.0, 0.05, 0.2, 0.0
 
@@ -48,3 +49,29 @@ def test_geometric_asian_below_european():
     ga = geometric_asian_price(S, K, T, r, SIG, Q, 50, "call")
     eu = bs_price(S, K, T, r, SIG, Q, "call")
     assert 0 < ga < eu                                                 # averaging lowers vol -> cheaper
+
+
+def test_barrier_in_out_parity():
+    # knock-in + knock-out = vanilla (no rebate), exactly
+    for style_in, style_out, kind, B in [("down-and-in", "down-and-out", "call", 90),
+                                         ("up-and-in", "up-and-out", "call", 120),
+                                         ("down-and-in", "down-and-out", "put", 90)]:
+        ki = barrier_price(S, K, B, T, r, SIG, Q, kind, style_in)
+        ko = barrier_price(S, K, B, T, r, SIG, Q, kind, style_out)
+        assert ki + ko == pytest.approx(bs_price(S, K, T, r, SIG, Q, kind), abs=1e-10)
+
+
+def test_barrier_knockout_below_vanilla():
+    ko = barrier_price(S, K, 90, T, r, SIG, Q, "call", "down-and-out")
+    assert 0 < ko < bs_price(S, K, T, r, SIG, Q, "call")               # knocking out can only lower value
+
+
+def test_lookback_call_exceeds_vanilla():
+    # a floating-strike lookback call (S_T - min) dominates the European call
+    lb = lookback_floating_price(S, T, r, SIG, Q, "call")
+    assert lb > bs_price(S, K, T, r, SIG, Q, "call") > 0
+
+
+def test_digital_delta_matches_finite_difference():
+    fd = (digital_price(S + 1e-3, K, T, r, SIG, Q, "call") - digital_price(S - 1e-3, K, T, r, SIG, Q, "call")) / 2e-3
+    assert digital_delta(S, K, T, r, SIG, Q, "call") == pytest.approx(fd, rel=1e-4)

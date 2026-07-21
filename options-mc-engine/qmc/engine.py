@@ -75,3 +75,15 @@ def convergence(sim_fn, payoff, r, T, Ns, true_price, rng, n_reps=40):
 def convergence_slope(Ns, rmse):
     """Least-squares slope of log(rmse) on log(Ns) — expected near -0.5."""
     return float(np.polyfit(np.log(Ns), np.log(rmse), 1)[0])
+
+
+BGK_BETA = 0.5826    # = -zeta(1/2)/sqrt(2*pi), the Broadie-Glasserman-Kou constant
+
+
+def bgk_barrier_shift(B, sigma, dt, up):
+    """Broadie-Glasserman-Kou continuity correction: to price a CONTINUOUSLY-
+    monitored barrier with a DISCRETELY-monitored (m-step) simulation, monitor
+    against a barrier shifted toward the spot by ``exp(±BGK_BETA sigma sqrt(dt))``
+    (down barriers up, up barriers down). This removes most of the ``O(1/sqrt(m))``
+    discrete-monitoring bias."""
+    return B * np.exp((-1 if up else 1) * BGK_BETA * sigma * np.sqrt(dt))
