@@ -20,13 +20,13 @@ Typical use::
 """
 from __future__ import annotations
 
-from . import config, analytic, processes, payoffs, engine, greeks, iv, calibration, data
+from . import config, analytic, processes, payoffs, engine, greeks, iv, calibration, data, pde
 from .config import get_rng, rng, SEED, DEFAULT_R, DEFAULT_Q, CACHE
 from .plotting import apply_style, CLR
 from .selftest import self_test
 
 __all__ = [
-    "config", "analytic", "processes", "payoffs", "engine", "greeks", "iv", "calibration", "data",
+    "config", "analytic", "processes", "payoffs", "engine", "greeks", "iv", "calibration", "data", "pde",
     "get_rng", "rng", "SEED", "DEFAULT_R", "DEFAULT_Q", "CACHE",
     "apply_style", "CLR", "self_test",
 ]
