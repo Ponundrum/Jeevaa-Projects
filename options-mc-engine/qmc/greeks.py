@@ -58,3 +58,28 @@ def mc_greeks(S0, K, T, r, sigma, q=0.0, kind="call", n_paths=400_000, rng=None,
         "likelihood_ratio": {"delta": delta_lr, "vega": vega_lr, "gamma": gamma_lr},
         "finite_diff": {"delta": delta_fd, "vega": vega_fd, "gamma": gamma_fd},
     }
+
+
+def mc_digital_delta(S0, K, T, r, sigma, q=0.0, kind="call", cash=1.0,
+                     n_paths=400_000, rng=None, h_rel=1e-2):
+    """Delta of a cash-or-nothing digital by the three methods — the case that
+    shows why likelihood-ratio exists. The payoff is a step, so the **pathwise**
+    derivative is structurally zero (it misses the delta entirely) and **finite
+    difference** is noisy (only the few paths near the strike flip); the
+    **likelihood-ratio** estimator differentiates the density, not the payoff, and
+    matches the closed-form ``digital_delta``."""
+    rng = rng or get_rng(7)
+    disc = np.exp(-r * T)
+    Z = rng.standard_normal(n_paths)
+    sqrtT = np.sqrt(T)
+    terminal = lambda s0: s0 * np.exp((r - q - 0.5 * sigma ** 2) * T + sigma * sqrtT * Z)
+    ST = terminal(S0)
+    itm = lambda s: ((s > K) if kind == "call" else (s < K)).astype(float)
+    payoff = cash * itm(ST)
+
+    delta_pw = 0.0                                                    # derivative of a step -> 0 (biased)
+    delta_lr = disc * np.mean(payoff * Z / (S0 * sigma * sqrtT))
+    hS = S0 * h_rel
+    price = lambda s0: disc * np.mean(cash * itm(terminal(s0)))
+    delta_fd = (price(S0 + hS) - price(S0 - hS)) / (2 * hS)
+    return {"pathwise": delta_pw, "likelihood_ratio": delta_lr, "finite_diff": delta_fd}

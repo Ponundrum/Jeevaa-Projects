@@ -7,10 +7,10 @@ from __future__ import annotations
 
 
 from .config import get_rng
-from .analytic import bs_price, bs_greeks, geometric_asian_price, put_call_parity_gap
+from .analytic import bs_price, bs_greeks, geometric_asian_price, put_call_parity_gap, digital_delta
 from . import payoffs, processes
 from .engine import mc_price, convergence, convergence_slope
-from .greeks import mc_greeks
+from .greeks import mc_greeks, mc_digital_delta
 
 
 def self_test(verbose=True):
@@ -48,14 +48,24 @@ def self_test(verbose=True):
     slope = convergence_slope(Ns, rmse)
     assert -0.75 < slope < -0.30, f"convergence slope {slope}"
 
-    # 5) MC Greeks agree with closed form (delta/vega within tolerance).
+    # 5) MC Greeks agree with closed form — ALL THREE methods, delta/vega/gamma.
     g_bs = bs_greeks(S, K, T, r, sigma, q, "call")
-    g_mc = mc_greeks(S, K, T, r, sigma, q, "call", n_paths=300_000, rng=rng)
-    assert abs(g_mc["pathwise"]["delta"] - g_bs["delta"]) < 0.01
-    assert abs(g_mc["pathwise"]["vega"] - g_bs["vega"]) < 0.5
+    g_mc = mc_greeks(S, K, T, r, sigma, q, "call", n_paths=400_000, rng=rng)
+    for method in ("pathwise", "likelihood_ratio", "finite_diff"):
+        assert abs(g_mc[method]["delta"] - g_bs["delta"]) < 0.01, f"{method} delta"
+        assert abs(g_mc[method]["vega"] - g_bs["vega"]) < 0.6, f"{method} vega"
+    for method in ("likelihood_ratio", "finite_diff"):
+        assert abs(g_mc[method]["gamma"] - g_bs["gamma"]) < 0.003, f"{method} gamma"
+
+    # 5b) Likelihood-ratio delta of a DIGITAL matches its closed form, where pathwise
+    #     is structurally zero — the case LR exists for.
+    dig = mc_digital_delta(S, K, T, r, sigma, q, "call", n_paths=400_000, rng=rng)
+    assert abs(dig["likelihood_ratio"] - digital_delta(S, K, T, r, sigma, q, "call")) < 0.002
+    assert abs(dig["pathwise"]) < 1e-9
 
     msg = (f"Self-tests passed: MC==BS within 3 SE, put-call parity holds, geometric-Asian "
-           f"matches closed form, convergence slope {slope:.2f} (~ -0.5), Greeks agree.")
+           f"matches closed form, convergence slope {slope:.2f} (~ -0.5), Greeks agree "
+           f"(pathwise/LR/FD, incl. LR digital delta).")
     if verbose:
         print(msg)
     return msg

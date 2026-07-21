@@ -82,6 +82,23 @@ def put_call_parity_gap(call, put, S, K, T, r, q=0.0):
     return call - put - (S * np.exp(-q * T) - K * np.exp(-r * T))
 
 
+def digital_price(S, K, T, r, sigma, q=0.0, kind="call", cash=1.0):
+    """Cash-or-nothing digital: pays ``cash`` if in-the-money at expiry.
+    Price = ``cash * e^{-rT} N(±d2)``."""
+    _, d2 = _d1_d2(S, K, T, r, sigma, q)
+    return cash * np.exp(-r * T) * (norm.cdf(d2) if kind == "call" else norm.cdf(-d2))
+
+
+def digital_delta(S, K, T, r, sigma, q=0.0, kind="call", cash=1.0):
+    """Closed-form delta of a cash-or-nothing digital, ``cash * e^{-rT} phi(d2) /
+    (S sigma sqrt(T))`` (sign flips for a put). The exact value the likelihood-ratio
+    estimator should match — and that pathwise/finite-difference struggle with,
+    because the payoff is discontinuous."""
+    _, d2 = _d1_d2(S, K, T, r, sigma, q)
+    mag = cash * np.exp(-r * T) * norm.pdf(d2) / (S * sigma * np.sqrt(T))
+    return mag if kind == "call" else -mag
+
+
 def geometric_asian_price(S, K, T, r, sigma, q=0.0, n_steps=50, kind="call"):
     """Closed form for a **discretely-monitored geometric-average** Asian option.
 
