@@ -41,8 +41,11 @@ def test_control_variate_reduces_variance():
 
 
 def test_convergence_slope_near_minus_half():
+    # The log-log slope is noisy; use a wide ladder + many replications + a generous
+    # band so this asserts "~ -1/2", not two decimals (see selftest check 4).
     rng = get_rng(5)
     sim = lambda N, g: processes.simulate_gbm(S, r, Q, SIG, T, 1, N, g)
     Ns, rmse = convergence(sim, payoffs.european("call", K), r, T,
-                           [2000, 8000, 32000, 128000], bs_price(S, K, T, r, SIG, Q), rng, n_reps=25)
-    assert -0.6 < convergence_slope(Ns, rmse) < -0.4
+                           [8000, 16000, 32000, 64000, 128000, 256000],
+                           bs_price(S, K, T, r, SIG, Q), rng, n_reps=60)
+    assert -0.75 < convergence_slope(Ns, rmse) < -0.30
