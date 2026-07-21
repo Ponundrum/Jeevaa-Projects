@@ -7,6 +7,10 @@ paths.
 - ``simulate_heston``         : Heston stochastic vol via the Andersen QE scheme.
 - ``simulate_rough_bergomi``  : rough Bergomi, with the fractional (Volterra)
   driver built by Cholesky decomposition of its exact covariance matrix.
+
+Memory note: a path array is ``n_paths x (n_steps+1)`` floats, so fine-grid
+path-dependent pricing (e.g. 2000 steps x 400k paths ~ 6 GB) can exhaust RAM —
+chunk ``n_paths`` and average across batches if memory-bound.
 """
 from __future__ import annotations
 

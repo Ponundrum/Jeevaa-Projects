@@ -93,6 +93,11 @@ def barrier_price(S, K, B, T, r, sigma, q=0.0, kind="call", style="down-and-out"
     phi = 1.0 if kind == "call" else -1.0
     down = "down" in style
     eta = 1.0 if down else -1.0
+    # Guard the degenerate already-breached start (the Reiner-Rubinstein formula assumes
+    # the spot has not yet crossed the barrier): a knocked barrier is already dead (out) or
+    # already activated (in), before any dynamics.
+    if (down and S <= B) or (not down and S >= B):
+        return 0.0 if "out" in style else bs_price(S, K, T, r, sigma, q, kind)
     sT = sigma * np.sqrt(T)
     mu = (b - 0.5 * sigma ** 2) / sigma ** 2
     x1 = np.log(S / K) / sT + (1 + mu) * sT

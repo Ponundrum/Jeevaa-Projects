@@ -77,16 +77,20 @@ def crank_nicolson(S0, K, T, r, sigma, q=0.0, kind="call", american=False,
             rt[-1] -= upper[-1] * hi
             V[1:-1] = _thomas(lower, diag, upper, rt)
         else:
-            # projected SOR against the intrinsic value (early exercise)
+            # projected SOR against the intrinsic value (early exercise), vectorised with
+            # red-black (checkerboard) ordering: each node depends only on its opposite-colour
+            # neighbours, so a whole colour updates in one array op instead of a Python loop.
             g = payoff[1:-1]
             w = V[1:-1].copy()
-            for _ in range(10000):
+            wf = np.empty(n + 2)                            # padded with the Dirichlet boundaries
+            wf[0], wf[-1], wf[1:-1] = lo, hi, w
+            red, black = np.arange(0, n, 2), np.arange(1, n, 2)
+            for _ in range(5000):
                 w_old = w.copy()
-                for i in range(n):
-                    lo_i = lower[i] * (w[i - 1] if i > 0 else lo)
-                    up_i = upper[i] * (w[i + 1] if i < n - 1 else hi)
-                    y = (rhs[i] - lo_i - up_i) / diag[i]
-                    w[i] = max(g[i], w[i] + omega * (y - w[i]))
+                for c in (red, black):                     # left neighbour = wf[c], right = wf[c+2]
+                    y = (rhs[c] - lower[c] * wf[c] - upper[c] * wf[c + 2]) / diag[c]
+                    w[c] = np.maximum(g[c], w[c] + omega * (y - w[c]))
+                    wf[c + 1] = w[c]
                 if np.max(np.abs(w - w_old)) < psor_tol:
                     break
             V[1:-1] = w
