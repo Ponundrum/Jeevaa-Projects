@@ -41,8 +41,10 @@ Read it in this order:
    engine, proven correct: European MC vs Black–Scholes, variance reduction, the `O(N^-1/2)` convergence rate,
    Monte Carlo Greeks by three methods, and exotics (with the geometric-Asian as an exact path-dependent check).
 2. **[`notebooks/02_vol_surface_and_rough_vol.ipynb`](notebooks/02_vol_surface_and_rough_vol.ipynb)** — a real
-   SPY implied-vol surface, an arbitrage-free SVI fit, a Heston calibration, and the rough-Bergomi payoff:
-   verifiable roughness and the short-dated skew.
+   SPY implied-vol surface (below), an arbitrage-free SVI fit, a Heston calibration, and the rough-Bergomi
+   payoff: verifiable roughness and the short-dated skew.
+
+   ![SPY implied-vol surface](docs/vol_surface.png)
 3. **[`qmc/`](qmc/)** — the toolkit the notebooks import (models implemented from scratch — no QuantLib):
    `analytic.py` (Black–Scholes, geometric-Asian, barrier, lookback, digital closed forms), `processes.py`
    (GBM, Heston QE, rough Bergomi), `payoffs.py`, `engine.py` (estimator + variance reduction + convergence +
