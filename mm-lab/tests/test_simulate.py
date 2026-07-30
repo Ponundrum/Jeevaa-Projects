@@ -64,3 +64,29 @@ def test_accounting_identity_holds_for_spread_adverse():
         res = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
                            n_paths=200, rng=get_rng(10), adverse=0.05, adverse_steps=k)
         assert metrics.accounting_residual(res) < 1e-8
+
+
+def test_fee_three_term_identity_and_default_unchanged():
+    # With fees on, total == spread - fee + inventory (to float); the two-term identity
+    # (check 3) still holds exactly at the default zero fee.
+    base = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                        n_paths=200, rng=get_rng(11))
+    assert base.fee_pnl.sum() == 0.0
+    assert metrics.accounting_residual(base) < 1e-8              # two-term identity unchanged
+    fee = 0.02                                                  # price units per fill
+    withfee = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                           n_paths=200, rng=get_rng(11), fee_per_fill=fee)
+    assert metrics.fee_adjusted_residual(withfee) < 1e-8        # three-term identity holds
+    # fee_pnl equals fee x total fills, and it lowers PnL by exactly that.
+    fills = withfee.bid_fills.sum(axis=1) + withfee.ask_fills.sum(axis=1)
+    assert np.allclose(withfee.fee_pnl, fee * fills)
+    assert np.allclose(withfee.total_pnl, base.total_pnl - withfee.fee_pnl)
+
+
+def test_negative_fee_is_a_rebate():
+    # A negative fee (market-maker rebate) increases PnL relative to zero fee.
+    base = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                        n_paths=200, rng=get_rng(12))
+    rebate = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                          n_paths=200, rng=get_rng(12), fee_per_fill=-0.01)
+    assert rebate.total_pnl.mean() > base.total_pnl.mean()

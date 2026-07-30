@@ -34,9 +34,25 @@ def decompose_pnl(res):
 
 def accounting_residual(res):
     """Max absolute violation of ``total == spread + inventory`` across paths — the
-    quantity check 3 drives to floating-point zero."""
+    quantity check 3 drives to floating-point zero (at the default zero fee)."""
     total, spread, inventory = decompose_pnl(res)
     return float(np.max(np.abs(total - (spread + inventory))))
+
+
+def decompose_pnl_with_fees(res):
+    """Per-path ``(total, spread, fee, inventory)`` — the fee-aware decomposition,
+    with the identity ``total == spread - fee + inventory``. ``fee`` is the maker fee
+    paid (negative under a rebate). At ``fee_per_fill = 0`` this reduces to
+    :func:`decompose_pnl` (``fee`` all zeros)."""
+    total, spread, inventory = decompose_pnl(res)
+    return total, spread, res.fee_pnl, inventory
+
+
+def fee_adjusted_residual(res):
+    """Max absolute violation of the three-term identity ``total == spread - fee +
+    inventory`` — holds to floating point whether or not fees are on."""
+    total, spread, fee, inventory = decompose_pnl_with_fees(res)
+    return float(np.max(np.abs(total - (spread - fee + inventory))))
 
 
 def sharpe(pnl):

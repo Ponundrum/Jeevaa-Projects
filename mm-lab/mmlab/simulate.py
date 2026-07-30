@@ -42,8 +42,9 @@ class SimResult:
     inventory: np.ndarray      # (n_paths, n_steps+1) post-fill inventory (carry)
     bid_fills: np.ndarray      # (n_paths, n_steps) 1 where the bid was hit
     ask_fills: np.ndarray      # (n_paths, n_steps) 1 where the ask was lifted
-    cash: np.ndarray           # (n_paths,) terminal cash X_T (starts at 0)
-    spread_pnl: np.ndarray     # (n_paths,) sum of half-spreads captured on fills
+    cash: np.ndarray           # (n_paths,) terminal cash X_T (starts at 0, net of fees)
+    spread_pnl: np.ndarray     # (n_paths,) sum of half-spreads captured on fills (gross)
+    fee_pnl: np.ndarray        # (n_paths,) total maker fees paid (>=0; 0 at fee_per_fill=0)
     dt: float
     T: float
 
@@ -57,7 +58,8 @@ class SimResult:
         return self.cash + self.inventory[:, -1] * self.mid[:, -1]
 
 
-def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adverse_steps=1):
+def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adverse_steps=1,
+        fee_per_fill=0.0):
     """Simulate ``n_paths`` market-making runs of horizon ``T`` and return a
     :class:`SimResult`.
 
@@ -66,7 +68,10 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adve
     the two half-spreads. ``A``/``kappa`` set the fill intensity; ``sigma`` the
     mid volatility (price per sqrt-second); ``adverse`` the post-fill drift, spread
     evenly over ``adverse_steps`` steps starting at the fill (``1`` = a single jump
-    at the fill step, the original behaviour).
+    at the fill step, the original behaviour). ``fee_per_fill`` is the maker fee in
+    **price units**, charged on every fill on both sides (default ``0.0`` — the fee is
+    the dominant term at retail tiers but off by default so the self-test identity is
+    unchanged); a *negative* value models an exchange market-maker rebate.
     """
     n = int(round(T / dt))
     K = max(int(adverse_steps), 1)
@@ -85,6 +90,7 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adve
     bid_fills = np.zeros((n_paths, n))
     ask_fills = np.zeros((n_paths, n))
     spread_pnl = np.zeros(n_paths)
+    fee_pnl = np.zeros(n_paths)
 
     for t in range(n):
         db, da = strategy(S, q, t * dt)
@@ -96,8 +102,11 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adve
         fa = (U_a[:, t] < p_a).astype(float)                      # ask lifted -> we SELL 1 @ S+da
 
         X += fa * (S + da) - fb * (S - db)                        # sell adds cash, buy spends it
+        fills = fb + fa
+        X -= fee_per_fill * fills                                 # maker fee on every fill, both sides
+        fee_pnl += fee_per_fill * fills
         q += fb - fa
-        spread_pnl += fb * db + fa * da                           # half-spread earned per fill
+        spread_pnl += fb * db + fa * da                           # half-spread earned per fill (gross)
         bid_fills[:, t] = fb
         ask_fills[:, t] = fa
         inv[:, t] = q                                             # inventory carried over [t, t+1]
@@ -113,7 +122,7 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adve
 
     inv[:, n] = q
     return SimResult(mid=mid, inventory=inv, bid_fills=bid_fills, ask_fills=ask_fills,
-                     cash=X, spread_pnl=spread_pnl, dt=dt, T=T)
+                     cash=X, spread_pnl=spread_pnl, fee_pnl=fee_pnl, dt=dt, T=T)
 
 
 def simulate_mid(S0, sigma, T, dt, n_paths, rng):
