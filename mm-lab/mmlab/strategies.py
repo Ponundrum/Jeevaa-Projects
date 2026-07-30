@@ -80,7 +80,7 @@ class AvellanedaStoikov:
     ``t = T`` checks).
     """
 
-    def __init__(self, gamma, sigma, kappa, T, frozen_horizon="config"):
+    def __init__(self, gamma, sigma, kappa, T, frozen_horizon="config", min_half_spread=None):
         self.gamma = float(gamma)
         self.sigma = float(sigma)
         self.kappa = float(kappa)
@@ -89,6 +89,11 @@ class AvellanedaStoikov:
             from .config import RISK_HORIZON
             frozen_horizon = RISK_HORIZON
         self.frozen_horizon = frozen_horizon
+        # Optional floor: at high inventory the skew can push a half-spread negative
+        # (quoting through the mid), where lambda = A*exp(-kappa*delta) is extrapolated
+        # outside delta >= 0 and stops meaning anything. Default None keeps the raw AS
+        # quotes; set a floor to clamp both sides (what a production maker would do).
+        self.min_half_spread = min_half_spread
 
     def tau(self, t):
         if self.frozen_horizon is not None:
@@ -101,4 +106,9 @@ class AvellanedaStoikov:
         half = 0.5 * optimal_spread(self.gamma, self.sigma, self.kappa, tau)
         db = skew + half                                              # S - bid
         da = -skew + half                                             # ask - S
-        return np.broadcast_to(db, np.shape(S)).astype(float), np.broadcast_to(da, np.shape(S)).astype(float)
+        db = np.broadcast_to(db, np.shape(S)).astype(float)
+        da = np.broadcast_to(da, np.shape(S)).astype(float)
+        if self.min_half_spread is not None:
+            db = np.maximum(db, self.min_half_spread)
+            da = np.maximum(da, self.min_half_spread)
+        return db, da
