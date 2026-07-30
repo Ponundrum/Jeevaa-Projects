@@ -1,5 +1,5 @@
 """Universe sizes are quoted in the README, so pin them here (no network)."""
-from qsa.data import SPOT_SYMBOLS, PERP_SYMBOLS
+from qsa.data import PERP_SYMBOLS, SPOT_SYMBOLS
 
 
 def test_spot_pool_size_and_uniqueness():

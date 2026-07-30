@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.5"]
+dev = ["pytest>=8", "ruff==0.12.0"]  # pinned: linting is a style gate, so the version is fixed for reproducible CI
 
 [tool.setuptools]
 packages = ["qsa"]
