@@ -106,21 +106,31 @@ def load_aggtrades(symbol, dates, verbose=True):
 
 
 def mid_grid(trades, step=1.0, smooth=3):
-    """Build a mid-price **proxy** on a uniform ``step``-second grid: the median trade
-    price within each bin (median damps bid-ask bounce better than last-trade), then a
-    short centred rolling median of width ``smooth`` bins, then forward-fill gaps.
-    Returns ``(t_grid, mid)`` arrays for the markout lookups. This is a proxy, not a
-    quoted mid — see the module docstring and the README limitations."""
+    """Build a **strictly causal** mid-price proxy on a uniform ``step``-second grid.
+
+    The value at grid point ``b`` is a trailing median (width ``smooth``) over bins
+    **strictly before** ``b`` — via ``shift(1)`` — so no grid mid is ever built from a
+    trade at or after its own timestamp. That matters because this mid feeds two
+    causal uses: the penetration depths in :func:`calibrate.trade_depths` (``mid -
+    price`` at a trade must not know where the price went next) and the fill-time
+    reference in a markout. A centred or current-bin-inclusive median would leak the
+    future here — and does: it is what made the earlier 1-second markout look
+    artificially shallow. This trades that lookahead for a ~1-bin **lag**, and the lag
+    is the acceptable bias. (The forward ``mid_{t+h}`` lookup in :func:`markout.markout_curve`
+    is *supposed* to see the future and is unaffected.) Still a proxy, not a quoted mid
+    — see the module docstring and the README limitations. Returns ``(t_grid, mid)``."""
     t = trades["time"].to_numpy()
     p = trades["price"].to_numpy()
     t0 = np.floor(t[0] / step) * step
     binned = pd.Series(p, index=((t - t0) / step).astype(int))
-    mid = binned.groupby(level=0).median()
-    full = pd.Series(index=np.arange(0, mid.index.max() + 1), dtype="float64")
-    full.loc[mid.index] = mid.to_numpy()
-    full = full.rolling(smooth, center=True, min_periods=1).median().ffill().bfill()
-    t_grid = t0 + full.index.to_numpy(dtype="float64") * step
-    return t_grid, full.to_numpy()
+    bin_med = binned.groupby(level=0).median()
+    full = pd.Series(index=np.arange(0, bin_med.index.max() + 1), dtype="float64")
+    full.loc[bin_med.index] = bin_med.to_numpy()
+    full = full.ffill()                                              # last trade price carried forward
+    # strictly-prior trailing median: mid[b] uses only bins < b.
+    mid = full.shift(1).rolling(smooth, min_periods=1).median().bfill()
+    t_grid = t0 + mid.index.to_numpy(dtype="float64") * step
+    return t_grid, mid.to_numpy()
 
 
 def probe_bookticker(symbol, date):
