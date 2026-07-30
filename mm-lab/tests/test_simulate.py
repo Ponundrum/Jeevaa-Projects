@@ -47,3 +47,20 @@ def test_fill_rate_matches_intensity():
     measured = res.bid_fills.sum() / (n5 * T5)
     expected = A * np.exp(-KAP * delta)
     assert abs(measured - expected) / expected < 0.03
+
+
+def test_adverse_steps_default_equals_single_jump():
+    # adverse_steps=1 (default) must reproduce the single-jump-at-fill behaviour exactly.
+    a = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                     n_paths=200, rng=get_rng(9), adverse=0.05)
+    b = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                     n_paths=200, rng=get_rng(9), adverse=0.05, adverse_steps=1)
+    assert np.allclose(a.mid, b.mid) and np.allclose(a.total_pnl, b.total_pnl)
+
+
+def test_accounting_identity_holds_for_spread_adverse():
+    # Spreading the adverse move over many steps must not break the PnL identity.
+    for k in (5, 30, 60):
+        res = simulate.run(Naive(_half()), S0=100.0, sigma=SIG, A=A, kappa=KAP, T=T, dt=DT,
+                           n_paths=200, rng=get_rng(10), adverse=0.05, adverse_steps=k)
+        assert metrics.accounting_residual(res) < 1e-8

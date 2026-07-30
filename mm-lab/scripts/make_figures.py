@@ -19,16 +19,21 @@ DOCS = __import__("pathlib").Path(__file__).resolve().parent.parent / "docs"
 DATES = ["2024-01-15", "2024-01-16", "2024-01-17"]
 HORIZONS = [1, 5, 10, 30, 60, 300]
 
-# --- simulator params, matched between the two strategies ------------------
-SIM = dict(S0=42730.0, sigma=2.14, A=2.6, kappa=0.576, T=600.0, dt=1.0, n_paths=3000)
-GAMMA = 0.0008
-NAIVE_HALF = 1.1                       # ~ where real fills land (mean depth), in USDT
+# --- simulator params, calibrated from the causal Layer-3 fit (notebook 02) ----
+SIM = dict(S0=42730.0, sigma=2.162, A=4.58, kappa=0.186, T=600.0, dt=1.0, n_paths=3000)
+GAMMA = 0.001
+# Fair comparison: naive quotes the SAME width AS uses when flat (its zero-inventory
+# half-spread), so the only difference between them is the inventory skew.
+NAIVE_HALF = 0.5 * float(strategies.optimal_spread(GAMMA, SIM["sigma"], SIM["kappa"], SIM["T"]))
 ADVERSE = 0.666e-4 * SIM["S0"]         # measured 60s markout, in price units
 
 
+def _as():
+    return strategies.AvellanedaStoikov(GAMMA, SIM["sigma"], SIM["kappa"], SIM["T"])
+
+
 def _run(strat, seed, adverse=0.0):
-    return simulate.run(strat, rng=get_rng(seed), adverse=adverse,
-                        **{k: v for k, v in SIM.items()})
+    return simulate.run(strat, rng=get_rng(seed), adverse=adverse, **SIM)
 
 
 def fig_inventory_paths():
@@ -36,7 +41,7 @@ def fig_inventory_paths():
     near zero by the reservation-price skew."""
     apply_style()
     rn = _run(strategies.Naive(NAIVE_HALF), 7)
-    ra = _run(strategies.AvellanedaStoikov(GAMMA, SIM["sigma"], SIM["kappa"], SIM["T"]), 7)
+    ra = _run(_as(), 7)
     t = np.arange(rn.inventory.shape[1]) * SIM["dt"] / 60.0     # minutes
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
     for ax, res, name in [(axL, rn, "Naive"), (axR, ra, "AS")]:
@@ -66,7 +71,7 @@ def fig_pnl_decomposition():
     labels, spread, inv = [], [], []
     for adv, tag in [(0.0, "no adv"), (ADVERSE, "adv")]:
         for strat, name in [(strategies.Naive(NAIVE_HALF), "Naive"),
-                            (strategies.AvellanedaStoikov(GAMMA, SIM["sigma"], SIM["kappa"], SIM["T"]), "AS")]:
+                            (_as(), "AS")]:
             _, s, iv = metrics.decompose_pnl(_run(strat, 7, adverse=adv))
             labels.append(f"{name}\n({tag})")
             spread.append(s.mean())
@@ -80,7 +85,7 @@ def fig_pnl_decomposition():
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.set_ylabel("mean PnL (USDT)")
-    ax.set_title("Adverse selection turns inventory PnL sharply negative — naive is hit hardest")
+    ax.set_title("Adverse selection dents inventory PnL for both (naive somewhat more); neither is sunk")
     ax.legend()
     fig.tight_layout()
     fig.savefig(DOCS / "pnl_decomposition.png", bbox_inches="tight")
@@ -125,23 +130,26 @@ def fig_markout_and_kappa():
 
     means, _ = markout.markout_curve(trades.time.to_numpy(), trades.price.to_numpy(),
                                      trades.is_buyer_maker.to_numpy(), t_mid, mid, HORIZONS)
-    hs_bps = markout.half_spread_captured_bps(bid_d, ask_d, float(np.median(mid)))
     fig, ax = plt.subplots(figsize=(8, 4.2))
-    ax.plot(HORIZONS, [means[h] for h in HORIZONS], "o-", color=CLR["markout"], lw=2, label="passive markout")
+    y = [means[h] for h in HORIZONS]
+    ax.plot(HORIZONS, y, "o-", color=CLR["markout"], lw=2, label="passive markout (bps)")
     ax.axhline(0, color="#333", lw=0.9)
-    ax.axhline(-hs_bps, color=CLR["fit"], ls="--", lw=1.6, label=f"half-spread captured (+{hs_bps:.2f} bps, shown as -)")
-    ax.fill_between(HORIZONS, [means[h] for h in HORIZONS], 0, color=CLR["markout"], alpha=0.12)
+    ax.fill_between(HORIZONS, y, 0, color=CLR["markout"], alpha=0.12)
+    ax.annotate("+1s: proxy lag\n(spread still showing)", (1, means[1]),
+                textcoords="offset points", xytext=(14, -20), fontsize=8, color="#555")
+    ax.annotate("plateau ~ -0.65 bps", (60, means[60]),
+                textcoords="offset points", xytext=(-30, -18), fontsize=8, color="#555")
     ax.set_xscale("log")
     ax.set_xticks(HORIZONS)
     ax.set_xticklabels([str(h) for h in HORIZONS])
     ax.set_xlabel("horizon after fill (seconds)")
     ax.set_ylabel("markout (bps)")
-    ax.set_title("The market moves against the passive quote — adverse selection dwarfs the captured spread")
-    ax.legend()
+    ax.set_title("Passive markout: adverse selection is realized within ~5s, then flat to 300s")
+    ax.legend(loc="lower left")
     fig.tight_layout()
     fig.savefig(DOCS / "markout_curve.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  markout_curve.png  (60s markout {means[60]:.2f} bps vs +{hs_bps:.2f} bps spread)")
+    print(f"  markout_curve.png  (1s {means[1]:+.2f} -> 60s {means[60]:+.2f} bps, plateau)")
 
 
 def main():

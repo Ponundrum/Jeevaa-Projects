@@ -4,20 +4,28 @@
 
 A market maker who quotes symmetrically around the mid *thinks* they earn the spread. This
 project builds a minimal simulator to state that intuition precisely, then measures — from
-real Binance trades — the **adverse selection** that breaks it: the market moves against
-essentially every passive fill. Once that measured adverse selection is fed back into the
-simulator, naive spread-capture stops being profitable, and **inventory-aware
-(Avellaneda–Stoikov) quoting is what survives**.
+real Binance trades — the **adverse selection** it ignores: the market moves against the
+passive side of essentially every fill. That measured adverse selection is then fed back
+into the simulator to see what it does to naive vs inventory-aware (Avellaneda–Stoikov)
+quoting.
 
 Everything is built from fewer than five moving parts that can be drawn on a whiteboard —
 no reinforcement learning, no order-book reconstruction, no queue model. Where a closed
 form exists (the AS quoting rule, the `γ → 0` limit, the PnL accounting identity), the code
 is checked against it.
 
-**On BTCUSDT trades, a passive fill captures ~0.26 bps of spread but is marked out by
-~0.65 bps within a minute — adverse selection ≈ 2.5× the edge.** Fed back into the sim, that
-drift turns a naive maker's PnL Sharpe from ~1.8 to ~0.5 (and negative at competitive quote
-distances), while Avellaneda–Stoikov — holding almost no inventory — stays robust.
+**On BTCUSDT trades, a passive fill is marked out ~0.65 bps against the maker within ~5
+seconds, then flat to 300s — adverse selection is real, fast, and bounded in time.** Fed
+back into the simulator it costs the naive and the AS strategy a *comparable* amount per
+fill (~−10% vs −7% of PnL); AS's advantage is that inventory control removes the
+mark-to-market **variance** (PnL std ~6× smaller), not that it dodges the adverse move — a
+variance claim, honestly, not a cost-avoidance one.
+
+> **Reported honestly.** An earlier version measured the mid with a *centred* smoother that
+> peeked one step into the future, producing a tidy "naive loses ~2.5× the spread" headline.
+> With a strictly causal mid (`tests/test_data.py` pins it), that result did not survive:
+> naive stays profitable, and AS's edge is variance reduction. The corrected story is the
+> one below — see notebook 02.
 
 ![Inventory paths: naive random-walks, AS mean-reverts to flat](docs/inventory_paths.png)
 
@@ -32,11 +40,11 @@ Each layer is verifiable before the next is built (the self-test enforces it):
    quotes around an inventory-skewed reservation price. The head-to-head deliverable is a
    **PnL decomposition** into *spread PnL* and *inventory PnL* — the single most
    illuminating output, and the reason AS matters.
-3. **Real data** — calibrate `σ, A, κ` from Binance `aggTrades`, measure the **markout
-   curve** (the adverse selection), then **close the loop** by feeding it back into the sim
-   and re-running both strategies.
+3. **Real data** — calibrate `σ, A, κ` from Binance `aggTrades` (against a strictly causal
+   mid proxy), measure the **markout curve** (the adverse selection), then **close the loop**
+   by feeding it back into the sim and reporting a sensitivity over how the drift is injected.
 
-![The market moves against the passive quote — adverse selection dwarfs the captured spread](docs/markout_curve.png)
+![Passive markout: adverse selection realized within ~5s, then flat to 300s](docs/markout_curve.png)
 
 ## What's validated (the definition of done)
 
@@ -78,7 +86,7 @@ Read it in this order:
 ```bash
 pip install -e ".[dev]"      # numpy / scipy / pandas / matplotlib
 python -c "from mmlab import self_test; self_test()"   # trust the lab first (~2s)
-pytest                       # 26 unit tests, no network (~3s)
+pytest                       # 31 unit tests, no network (~3s)
 jupyter lab                  # notebooks/01 ... then notebooks/02
 ```
 
@@ -96,13 +104,26 @@ loader retries with backoff and degrades gracefully if the network is down.
 - **No market impact:** the simulated maker's own quotes do not move the price.
 - **Arithmetic Brownian mid** has no fat tails, no volatility clustering, no jumps — the
   three things that actually kill market makers.
-- **Mid proxy.** The futures `bookTicker` (true bid/ask) exists but is ~10× heavier
-  (~188 MB/day), so notebook 02 uses a **trade-price mid proxy**. It is contaminated by
-  bid–ask bounce (~one spread wide, mean-reverting), which damages the shortest-horizon (1s)
-  markout most — visible in the curve, and why the headline leans on the 5–60s horizons.
+- **Mid proxy — and what it cannot measure.** The futures `bookTicker` (true bid/ask) exists
+  but is ~10× heavier (~188 MB/day), so notebook 02 uses a strictly-causal **trade-price mid
+  proxy**. At 1-second resolution it cannot resolve BTC's true spread (one tick ≈ 0.01 USDT ≈
+  0.002 bps); the "penetration depths" it measures are dominated by ~1s of volatility, which
+  makes the fitted `κ` (~0.19) implausibly low. So the absolute fill economics are *not*
+  reliable, and this repo does **not** quote a spread-capture-vs-markout ratio — that would
+  need real quotes. The robust results are the markout magnitude/shape and the simulator's
+  inventory-control behaviour. The proxy also lags ~1s, which is why the 1s markout point is
+  positive (an artefact, not maker profit).
+- **`σ` is biased a little low.** Median-smoothing the mid removes high-frequency variation,
+  so the realized `σ` (~28% annualised) understates true vol; since `σ` enters the AS spread
+  quadratically, the inventory-risk term is understated too.
 - **The markout is measured on *all* tape trades**, not on this strategy's own fills, so it
   estimates the adverse selection facing a *typical* passive quote; and the feedback injects
-  it as a first-order per-fill drift, not a microstructurally exact coupling.
+  it as a first-order per-fill drift whose *timing* is a modelling choice (the notebook reports
+  a sensitivity over `adverse_steps`), not a microstructurally exact coupling.
+- **AS quotes can cross the mid at high inventory.** The skew can push a half-spread negative,
+  where `λ(δ) = A e^{−κδ}` is extrapolated outside `δ ≥ 0` and stops meaning anything (it does
+  not bite at the inventories reached here, but `AvellanedaStoikov(min_half_spread=…)` floors
+  it; a production maker would floor the quote and impose a hard inventory limit).
 - **The stationary variant is the pragmatic one.** The `(T−t)` clock is frozen at a fixed
   risk horizon (what production systems effectively do). The principled alternative is the
   Guéant–Lehalle–Fernandez-Tapia asymptotic solution, which gives stationary quotes and a

@@ -53,9 +53,11 @@ matched exactly to the **Avellaneda–Stoikov** quoting model, plus a data pipel
 selection** from Binance trades and feeds it back into the sim. Deliberately whiteboard-simple — no RL, no
 order-book reconstruction, no queue model — with every headline checked against a closed form.
 
-**A passive fill captures ~0.26 bps of spread but is marked out by ~0.65 bps within a minute — adverse
-selection ≈ 2.5× the edge.** Fed back into the simulator, that drift collapses a naive maker's PnL Sharpe from
-~1.8 to ~0.5 (negative at competitive quote distances), while inventory-aware quoting stays robust.
+**On BTCUSDT trades, a passive fill is marked out ~0.65 bps against the maker within ~5 seconds, then flat —
+real, fast adverse selection.** Fed back into the simulator it costs naive and AS a *comparable* amount per
+fill; AS wins on a ~6× smaller PnL variance, because inventory control removes the mark-to-market swings — a
+variance claim, not a cost-avoidance one. (An earlier lookahead bug in the mid proxy had produced a tidier
+"naive loses" headline; a causal fix overturned it, and the corrected result is reported instead.)
 
 A Python package (`mmlab`) holds the simulator, the two strategies, calibration and markouts; two notebooks
 tell the story — the model proven correct, then adverse selection measured and closed back into the loop.

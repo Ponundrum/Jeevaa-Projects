@@ -47,3 +47,13 @@ def test_naive_is_symmetric_and_flat():
     strat = Naive(0.5)
     db, da = strat(np.array([100.0, 100.0]), np.array([3.0, -3.0]), 0.0)
     assert np.all(db == 0.5) and np.all(da == 0.5)
+
+
+def test_min_half_spread_floors_quotes():
+    # At high inventory the AS ask can go negative (quote through the mid); the floor clamps it.
+    raw = AvellanedaStoikov(0.01, SIG, KAP, T=600.0, frozen_horizon=600.0)
+    db, da = raw(np.array([100.0]), np.array([50.0]), 0.0)
+    assert da < 0                                      # unclamped crosses the mid
+    floored = AvellanedaStoikov(0.01, SIG, KAP, T=600.0, frozen_horizon=600.0, min_half_spread=0.0)
+    db2, da2 = floored(np.array([100.0]), np.array([50.0]), 0.0)
+    assert da2 >= 0.0 and db2 >= 0.0                   # floor holds both sides at >= 0

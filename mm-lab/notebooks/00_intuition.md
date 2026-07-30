@@ -12,9 +12,12 @@ though they buy low and sell high on every round trip?**
 Because their fills aren't random — they're *selected against*. You get lifted on your ask
 precisely when buyers know something and the price is about to rise, and hit on your bid
 right before it falls. So the "buy low, sell high" is an illusion: you bought just before
-lower, and sold just before higher. The spread you capture is real but small (~0.26 bps in
-the BTC data here); the adverse move against your resting quote is larger (~0.65 bps within
-a minute). You are being paid a spread to warehouse the losing side of informed flow.
+lower, and sold just before higher. In the BTC data here, a passive fill is marked out
+~0.65 bps against you within about five seconds — real, measurable adverse selection. That
+does *not* automatically make symmetric quoting unprofitable (whether it does depends on the
+spread you earn versus that markout, and a trade-price proxy can't measure the true spread —
+see Q10); what it does is put a warehousing cost on every fill that a symmetric quoter, who
+ignores inventory, has no mechanism to manage.
 
 **2. What is the reservation price, and why isn't it the mid?**
 
@@ -49,9 +52,11 @@ unloading inventory. It's the mechanism that turns "manage inventory" into an ac
 It's the tendency of the market to move against whoever provided liquidity, because the
 counterparty was better informed. You measure it with **markouts**: for every trade, look at
 where the mid is 1s / 5s / … / 300s later, signed so that "market moved against the passive
-side" is negative. Average across trades, in bps. A negative, worsening curve is adverse
-selection, and comparing its size to the spread you capture tells you if quoting is a
-business.
+side" is negative. Average across trades, in bps. In the BTC data the curve is negative and
+then **flat** — adverse selection is essentially fully realized within ~5 seconds and does
+not keep accumulating out to 300s. (I expected a monotonically worsening curve going in; the
+plateau is what the data actually showed, and it's a *more* useful number because it bounds
+how quickly a maker has to react.)
 
 **6. Your inventory is +10 and volatility just doubled. What happens to your quotes, and
 why in that direction?**
@@ -102,3 +107,24 @@ market impact from your own quotes, no cancellations, no order-size distribution
 adverse selection here is injected as a first-order per-fill drift measured on *all* tape
 trades, not the strategy's own fills. The model is a clean instrument for one idea — inventory
 control under measured adverse selection — not a trading system.
+
+**11. Is Avellaneda–Stoikov actually protecting you from adverse selection, or just from
+inventory variance?**
+
+Mostly the latter, and it's important to be honest about it. When I feed the measured
+adverse selection back into the simulator, it costs the naive and the AS strategies a
+*comparable* amount per fill (~−10% vs ~−7% of PnL) — AS does not dodge the adverse move.
+What AS does is hold almost no inventory, which collapses the mark-to-market *variance* of
+its PnL (several times smaller standard deviation than naive). That variance reduction is
+the entire source of its much higher Sharpe. So the honest sentence is: *AS controls
+inventory risk, which is a different and more defensible claim than "AS avoids adverse
+selection."* How much of the mean-PnL hit it also avoids depends on how fast it can flatten
+relative to how fast the adverse move arrives — which is a modelling choice the notebook
+reports a sensitivity over rather than a single number.
+
+**A note on getting this wrong first.** An earlier version of this project reported that
+naive market making *loses money* to adverse selection, "shown with data." That came from a
+mid-price proxy built with a centred smoother that peeked one step into the future. With a
+strictly causal mid, the result changed: naive stays profitable, and AS's advantage is
+variance, not cost-avoidance. Finding and reporting that — rather than keeping the tidier
+headline — is the part of this project I'd actually want to talk about.
