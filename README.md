@@ -1,9 +1,10 @@
 # Quantitative Finance Projects
 
-Two self-contained projects that cover the two halves of quant — **the research and the pricing**. One finds
-and validates market-neutral *alpha* in real crypto data; the other builds and *proves* a derivatives-pricing
-engine from first principles, against closed-form mathematics. Each folder runs end-to-end from a clean
-checkout, with its own tests, CI, and honest-limitations write-up.
+Three self-contained projects across the arc of quant — **the research, the pricing, and the trading**. One
+finds and validates market-neutral *alpha* in real crypto data; one builds and *proves* a derivatives-pricing
+engine from first principles against closed-form mathematics; one shows, from real trade data, why naive
+market making loses to adverse selection and what quoting rule survives. Each folder runs end-to-end from a
+clean checkout, with its own tests, CI, and honest-limitations write-up.
 
 ## 1 · Crypto Statistical Arbitrage &nbsp;·&nbsp; [`crypto-stat-arb/`](crypto-stat-arb/)
 
@@ -44,3 +45,20 @@ A Python package (`qmc`) implements every model from scratch (no QuantLib); two 
 engine proven correct, and the volatility surface with rough-vol calibration. &nbsp;→ **[Read the project](options-mc-engine/)**
 
 ![Short-dated smile: rough volatility matches the steeper skew](options-mc-engine/docs/rough_vol_smile.png)
+
+## 3 · Market-Making Laboratory &nbsp;·&nbsp; [`mm-lab/`](mm-lab/)
+
+The trading side: how a liquidity *provider* actually loses or survives. A minimal Poisson-fill simulator,
+matched exactly to the **Avellaneda–Stoikov** quoting model, plus a data pipeline that measures **adverse
+selection** from Binance trades and feeds it back into the sim. Deliberately whiteboard-simple — no RL, no
+order-book reconstruction, no queue model — with every headline checked against a closed form.
+
+**A passive fill captures ~0.26 bps of spread but is marked out by ~0.65 bps within a minute — adverse
+selection ≈ 2.5× the edge.** Fed back into the simulator, that drift collapses a naive maker's PnL Sharpe from
+~1.8 to ~0.5 (negative at competitive quote distances), while inventory-aware quoting stays robust.
+
+A Python package (`mmlab`) holds the simulator, the two strategies, calibration and markouts; two notebooks
+tell the story — the model proven correct, then adverse selection measured and closed back into the loop.
+&nbsp;→ **[Read the project](mm-lab/)**
+
+![Inventory paths: naive random-walks, Avellaneda-Stoikov mean-reverts to flat](mm-lab/docs/inventory_paths.png)

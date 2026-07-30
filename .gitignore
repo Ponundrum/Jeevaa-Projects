@@ -1,6 +1,8 @@
 # Market data caches — never commit (downloaded from Binance's public archive on first run)
 **/crypto_data/
 crypto_data/
+**/_cache/
+*.egg-info/
 
 # Python / Jupyter artifacts
 __pycache__/
