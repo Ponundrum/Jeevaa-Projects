@@ -6,10 +6,14 @@ we measure how the mid moves afterwards::
     markout(h) = (mid_{t+h} - fill_price) * (+1 if the maker bought, -1 if sold)
 
 Averaged across trades at several horizons ``h`` and reported in basis points, this
-is the adverse selection facing a resting quote: the number is expected to be
-*negative and worsening with horizon* — the market systematically moves against
-whoever provided the liquidity. Comparing its magnitude to the half-spread a maker
-thinks they capture is the punchline of the whole repo.
+is the adverse selection facing a resting quote. The *measured* curve on BTCUSDT is
+slightly positive at 1s (the causal mid proxy lags by ~1s, so the maker still looks
+up by roughly the spread it just earned), then turns firmly negative by 5s and
+**plateaus near -0.65 bps out to 300s** — adverse selection is essentially fully
+realized within a few seconds and does not keep accumulating. (Going in, the
+textbook expectation was a curve that *worsens* monotonically with horizon; the flat
+plateau is what the data actually show, and it usefully bounds how long a maker has
+to react.)
 
 ``is_buyer_maker`` (Binance's flag) identifies the passive side: ``True`` means the
 maker was the buyer (a resting bid got hit), so the maker **bought** -> sign ``+1``.
@@ -50,14 +54,3 @@ def markout_curve(t_trade, p_fill, is_buyer_maker, t_mid, p_mid, horizons):
         means[h] = float(np.mean(bps[valid])) if valid.any() else float("nan")
         counts[h] = int(valid.sum())
     return means, counts
-
-
-def half_spread_captured_bps(bid_depths, ask_depths, mid_level):
-    """The other half of the punchline: the mean half-spread a maker captures per
-    fill, in bps, estimated as the average penetration depth at which trades arrive
-    (i.e. how far from the mid a resting quote typically fills). Compared against
-    ``|markout|`` at the holding horizon, this says whether naive market making is a
-    business or a subsidy to the takers."""
-    depths = np.concatenate([np.asarray(bid_depths, dtype=float),
-                             np.asarray(ask_depths, dtype=float)])
-    return float(1e4 * np.mean(depths) / mid_level)
