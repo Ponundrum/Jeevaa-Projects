@@ -14,18 +14,20 @@ no reinforcement learning, no order-book reconstruction, no queue model. Where a
 form exists (the AS quoting rule, the `γ → 0` limit, the PnL accounting identity), the code
 is checked against it.
 
-**On BTCUSDT trades, a passive fill is marked out ~0.65 bps against the maker within ~5
-seconds, then flat to 300s — adverse selection is real, fast, and bounded in time.** Fed
-back into the simulator it costs the naive and the AS strategy a *comparable* amount per
-fill (~−10% vs −7% of PnL); AS's advantage is that inventory control removes the
-mark-to-market **variance** (PnL std ~6× smaller), not that it dodges the adverse move — a
-variance claim, honestly, not a cost-avoidance one.
+**On BTCUSDT futures, a maker resting at the touch captures ~0.014 bps of spread but is
+marked out ~0.30 bps within seconds — adverse selection is ~20× the touch half-spread, so
+quoting at the touch is a losing business.** The spread is real (measured from the
+`bookTicker` bid/ask, not a proxy), and the fill elasticity `κ` says the model-optimal quote
+sits *much* wider than the touch; there, both strategies profit and Avellaneda–Stoikov wins
+on a ~13× smaller PnL variance — inventory control, not adverse-selection avoidance.
 
-> **Reported honestly.** An earlier version measured the mid with a *centred* smoother that
-> peeked one step into the future, producing a tidy "naive loses ~2.5× the spread" headline.
-> With a strictly causal mid (`tests/test_data.py` pins it), that result did not survive:
-> naive stays profitable, and AS's edge is variance reduction. The corrected story is the
-> one below — see notebook 02.
+> **The honest arc.** This headline took three tries, and the repo shows all three: (1) a
+> *centred* mid proxy that peeked into the future gave a spurious "naive loses 2.5× the
+> spread"; (2) a strictly *causal* proxy fixed the lookahead but couldn't resolve BTC's true
+> spread, so it declined to quote the ratio at all; (3) real `bookTicker` quotes make the
+> spread observable and the ratio defensible. Finding and owning each step — including a
+> lookahead bug of my own — is the part worth reading. Notebook 02 is structured as
+> *what the proxy got wrong, and by how much*.
 
 ![Inventory paths: naive random-walks, AS mean-reverts to flat](docs/inventory_paths.png)
 
@@ -40,11 +42,12 @@ Each layer is verifiable before the next is built (the self-test enforces it):
    quotes around an inventory-skewed reservation price. The head-to-head deliverable is a
    **PnL decomposition** into *spread PnL* and *inventory PnL* — the single most
    illuminating output, and the reason AS matters.
-3. **Real data** — calibrate `σ, A, κ` from Binance `aggTrades` (against a strictly causal
-   mid proxy), measure the **markout curve** (the adverse selection), then **close the loop**
-   by feeding it back into the sim and reporting a sensitivity over how the drift is injected.
+3. **Real data** — calibrate `σ, A, κ` from Binance futures trades against the real
+   `bookTicker` mid, measure the **touch half-spread** and the **markout curve** (the adverse
+   selection), compare them to what a 1-second trade-price proxy would have said, then **close
+   the loop** by feeding the measured drift back into the sim.
 
-![Passive markout: adverse selection realized within ~5s, then flat to 300s](docs/markout_curve.png)
+![The proxy's 1s markout is a lag artefact; real quotes show adverse selection from the first second](docs/markout_comparison.png)
 
 ## What's validated (the definition of done)
 
@@ -75,25 +78,28 @@ Read it in this order:
 2. **[`notebooks/01_model_and_simulator.ipynb`](notebooks/01_model_and_simulator.ipynb)** —
    theory → simulator → strategy comparison → PnL decomposition → the inventory figure.
 3. **[`notebooks/02_adverse_selection.ipynb`](notebooks/02_adverse_selection.ipynb)** —
-   calibration on real BTCUSDT trades, the `κ` fit, the markout curve, and closing the loop.
-4. **[`mmlab/`](mmlab/)** — the ~800-line package the notebooks import: `simulate.py`
-   (mid + Poisson fills), `strategies.py` (naive, Avellaneda–Stoikov), `metrics.py` (PnL
-   decomposition), `calibrate.py` (`σ, A, κ`), `markout.py`, `data.py` (cached Binance
-   loader), `plotting.py`, `selftest.py`.
+   real BTCUSDT futures quotes vs a trade-price proxy, side by side: the touch half-spread,
+   the `σ`/`κ` recalibration, the markout comparison, the headline ratio, and closing the loop.
+4. **[`mmlab/`](mmlab/)** — the package the notebooks import: `simulate.py` (mid + Poisson
+   fills), `strategies.py` (naive, Avellaneda–Stoikov), `metrics.py` (PnL decomposition),
+   `calibrate.py` (`σ, A, κ`), `markout.py`, `data.py` (spot `aggTrades` + the causal mid
+   proxy), `quotes.py` (futures `bookTicker` + `aggTrades`, checksum + causal join),
+   `plotting.py`, `selftest.py`.
 
 ## Running it
 
 ```bash
 pip install -e ".[dev]"      # numpy / scipy / pandas / matplotlib
 python -c "from mmlab import self_test; self_test()"   # trust the lab first (~2s)
-pytest                       # 31 unit tests, no network (~3s)
+pytest                       # 35 unit tests, no network (~3s)
 jupyter lab                  # notebooks/01 ... then notebooks/02
 ```
 
 Every result is reproducible from the single seed in `mmlab/config.py` (`SEED = 20240101`).
-Notebook 01 needs no data. Notebook 02 pulls a few days of BTCUSDT `aggTrades` from Binance's
-public archive (`data.binance.vision`, ~15 MB/day) and caches them under `_cache/`; the
-loader retries with backoff and degrades gracefully if the network is down.
+Notebook 01 needs no data. Notebook 02 pulls one day of BTCUSDT futures `aggTrades` (~13 MB)
+and one day of `bookTicker` (~188 MB, checksum-verified) from Binance's public archive
+(`data.binance.vision`), caching a compact derived parquet under `_cache/`; the loaders retry
+with backoff and degrade gracefully offline.
 
 ## Honest limitations
 
@@ -104,18 +110,12 @@ loader retries with backoff and degrades gracefully if the network is down.
 - **No market impact:** the simulated maker's own quotes do not move the price.
 - **Arithmetic Brownian mid** has no fat tails, no volatility clustering, no jumps — the
   three things that actually kill market makers.
-- **Mid proxy — and what it cannot measure.** The futures `bookTicker` (true bid/ask) exists
-  but is ~10× heavier (~188 MB/day), so notebook 02 uses a strictly-causal **trade-price mid
-  proxy**. At 1-second resolution it cannot resolve BTC's true spread (one tick ≈ 0.01 USDT ≈
-  0.002 bps); the "penetration depths" it measures are dominated by ~1s of volatility, which
-  makes the fitted `κ` (~0.19) implausibly low. So the absolute fill economics are *not*
-  reliable, and this repo does **not** quote a spread-capture-vs-markout ratio — that would
-  need real quotes. The robust results are the markout magnitude/shape and the simulator's
-  inventory-control behaviour. The proxy also lags ~1s, which is why the 1s markout point is
-  positive (an artefact, not maker profit).
-- **`σ` is biased a little low.** Median-smoothing the mid removes high-frequency variation,
-  so the realized `σ` (~28% annualised) understates true vol; since `σ` enters the AS spread
-  quadratically, the inventory-risk term is understated too.
+- **Real quotes now — but the trade proxy is kept as the comparison.** Notebook 02 uses the
+  futures `bookTicker` (real bid/ask) for the headline, so the touch half-spread and fill
+  elasticity are directly observed, not proxied. The 1-second trade-price proxy is retained
+  *alongside* it to quantify its errors (it under-states `σ` by ~25%, under-states `κ` ~3×,
+  and its 1-second markout is a sign-flipped lag artefact — while its 5–300s adverse-selection
+  plateau matches the truth). Knowing which proxy estimate to distrust is the point.
 - **The markout is measured on *all* tape trades**, not on this strategy's own fills, so it
   estimates the adverse selection facing a *typical* passive quote; and the feedback injects
   it as a first-order per-fill drift whose *timing* is a modelling choice (the notebook reports
@@ -130,7 +130,7 @@ loader retries with backoff and degrades gracefully if the network is down.
   hard inventory bound; it is *not* implemented here because its closed form was not sourced
   and verified, and writing it from memory would violate the project's "check against the
   math" rule.
-- **One symbol, one window.** BTCUSDT, a few days in January 2024. No claim of generality —
+- **One symbol, one day.** BTCUSDT futures, 2024-01-15. No claim of generality —
   the point is to understand `κ`, not to survey coins.
 
 MIT licensed. Sibling projects: **[`../crypto-stat-arb`](../crypto-stat-arb)** (empirical

@@ -53,14 +53,15 @@ matched exactly to the **Avellaneda–Stoikov** quoting model, plus a data pipel
 selection** from Binance trades and feeds it back into the sim. Deliberately whiteboard-simple — no RL, no
 order-book reconstruction, no queue model — with every headline checked against a closed form.
 
-**On BTCUSDT trades, a passive fill is marked out ~0.65 bps against the maker within ~5 seconds, then flat —
-real, fast adverse selection.** Fed back into the simulator it costs naive and AS a *comparable* amount per
-fill; AS wins on a ~6× smaller PnL variance, because inventory control removes the mark-to-market swings — a
-variance claim, not a cost-avoidance one. (An earlier lookahead bug in the mid proxy had produced a tidier
-"naive loses" headline; a causal fix overturned it, and the corrected result is reported instead.)
+**On BTCUSDT futures, a maker resting at the touch captures ~0.014 bps but is marked out ~0.30 bps within
+seconds — adverse selection ~20× the touch half-spread, measured against the real `bookTicker` bid/ask.** So
+quoting at the touch loses; the fill elasticity says quote much wider, where both strategies profit and
+Avellaneda–Stoikov wins on a ~13× smaller PnL variance (inventory control, not adverse-selection avoidance).
+Getting to that number took three tries — a lookahead-bug proxy, a causal-but-blind proxy, then real quotes —
+and the repo shows and owns all three.
 
-A Python package (`mmlab`) holds the simulator, the two strategies, calibration and markouts; two notebooks
-tell the story — the model proven correct, then adverse selection measured and closed back into the loop.
+A Python package (`mmlab`) holds the simulator, the two strategies, calibration, markouts, and the real-quote
+loader; two notebooks tell the story — the model proven correct, then the proxy measured against real quotes.
 &nbsp;→ **[Read the project](mm-lab/)**
 
 ![Inventory paths: naive random-walks, Avellaneda-Stoikov mean-reverts to flat](mm-lab/docs/inventory_paths.png)

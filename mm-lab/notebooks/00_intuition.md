@@ -12,12 +12,12 @@ though they buy low and sell high on every round trip?**
 Because their fills aren't random — they're *selected against*. You get lifted on your ask
 precisely when buyers know something and the price is about to rise, and hit on your bid
 right before it falls. So the "buy low, sell high" is an illusion: you bought just before
-lower, and sold just before higher. In the BTC data here, a passive fill is marked out
-~0.65 bps against you within about five seconds — real, measurable adverse selection. That
-does *not* automatically make symmetric quoting unprofitable (whether it does depends on the
-spread you earn versus that markout, and a trade-price proxy can't measure the true spread —
-see Q10); what it does is put a warehousing cost on every fill that a symmetric quoter, who
-ignores inventory, has no mechanism to manage.
+lower, and sold just before higher. With real BTCUSDT-futures quotes, the numbers are stark:
+a maker resting at the touch captures a half-spread of ~0.014 bps but is marked out ~0.30 bps
+within seconds — the market takes back roughly *twenty times* what you earned on the fill. So
+quoting at the touch genuinely loses. The escape is not to quote symmetrically-but-wider blindly;
+it is to *skew* around inventory (the next answers) and to quote wide enough that the captured
+spread beats the adverse selection — a width the fill elasticity `κ` pins down.
 
 **2. What is the reservation price, and why isn't it the mid?**
 
@@ -52,11 +52,12 @@ unloading inventory. It's the mechanism that turns "manage inventory" into an ac
 It's the tendency of the market to move against whoever provided liquidity, because the
 counterparty was better informed. You measure it with **markouts**: for every trade, look at
 where the mid is 1s / 5s / … / 300s later, signed so that "market moved against the passive
-side" is negative. Average across trades, in bps. In the BTC data the curve is negative and
-then **flat** — adverse selection is essentially fully realized within ~5 seconds and does
-not keep accumulating out to 300s. (I expected a monotonically worsening curve going in; the
-plateau is what the data actually showed, and it's a *more* useful number because it bounds
-how quickly a maker has to react.)
+side" is negative. Average across trades, in bps. Against the real `bookTicker` mid the curve
+is negative from the first second (~−0.37 bps at 1s) and then **flat** at ~−0.30 bps out to
+300s — adverse selection is essentially fully realized within ~5 seconds and does not keep
+accumulating. The mid you measure against matters: a lagged 1-second trade-price *proxy* put
+the 1s point at *+0.6 bps* (a sign-flipped artefact) even though it got the 5–300s plateau
+right — which is why real quotes are worth the extra 188 MB/day.
 
 **6. Your inventory is +10 and volatility just doubled. What happens to your quotes, and
 why in that direction?**
@@ -122,9 +123,12 @@ selection."* How much of the mean-PnL hit it also avoids depends on how fast it 
 relative to how fast the adverse move arrives — which is a modelling choice the notebook
 reports a sensitivity over rather than a single number.
 
-**A note on getting this wrong first.** An earlier version of this project reported that
-naive market making *loses money* to adverse selection, "shown with data." That came from a
-mid-price proxy built with a centred smoother that peeked one step into the future. With a
-strictly causal mid, the result changed: naive stays profitable, and AS's advantage is
-variance, not cost-avoidance. Finding and reporting that — rather than keeping the tidier
-headline — is the part of this project I'd actually want to talk about.
+**A note on getting the mid right — three tries.** The headline number here (how adverse
+selection compares to the spread) took three attempts, and the repo shows all three.
+(1) A first pass built the mid with a *centred* smoother that peeked one step into the
+future — a lookahead bug that produced a tidy "naive loses ~2.5× the spread." (2) Fixing it
+to a strictly *causal* trade-price proxy removed the lookahead, but a 1-second proxy still
+cannot resolve BTC's true spread, so it honestly *declined to quote the ratio*. (3) Only the
+real `bookTicker` quotes make the spread observable, and then the ratio (~20×) is defensible.
+Owning that arc — including a lookahead bug of my own — is the part of this project I'd
+actually want to talk about, more than any single number.
