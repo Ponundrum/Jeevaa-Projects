@@ -11,7 +11,7 @@ Trust the lab first::
 """
 from __future__ import annotations
 
-from . import calibrate, data, markout, metrics, plotting, simulate, strategies
+from . import calibrate, data, markout, metrics, plotting, quotes, simulate, strategies
 from .config import MONTH, RISK_HORIZON, SEED, SYMBOL, get_rng, rng
 from .selftest import self_test
 from .strategies import AvellanedaStoikov, Naive
@@ -29,6 +29,7 @@ __all__ = [
     "markout",
     "metrics",
     "plotting",
+    "quotes",
     "rng",
     "self_test",
     "simulate",
