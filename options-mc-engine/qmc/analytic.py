@@ -131,6 +131,16 @@ def lookback_floating_price(S, T, r, sigma, q=0.0, kind="call"):
     sT = sigma * np.sqrt(T)
     a1 = (b + 0.5 * sigma ** 2) * T / sT               # running extreme = spot, so ln(S/extreme)=0
     a2 = a1 - sT
+    if abs(b) < 1e-10:
+        # Removable singularity at b = 0: the sigma^2/(2b) * [...] term is written with a 1/b
+        # that cancels analytically, so it has a finite limit (l'Hopital) rather than a pole.
+        # Using a1 = sigma*sqrt(T)/2 here, that limit is the `tail` below; evaluate it directly.
+        df = np.exp(-r * T)                            # r == q, so both discount factors coincide
+        if kind == "call":
+            tail = sT * norm.pdf(a1) - 0.5 * sigma ** 2 * T * norm.cdf(-a1)
+            return S * df * (norm.cdf(a1) - norm.cdf(a2) + tail)
+        tail = sT * norm.pdf(a1) + 0.5 * sigma ** 2 * T * norm.cdf(a1)
+        return S * df * (norm.cdf(-a2) - norm.cdf(-a1) + tail)
     g = 2 * b * np.sqrt(T) / sigma
     if kind == "call":
         return (S * np.exp(-q * T) * norm.cdf(a1) - S * np.exp(-r * T) * norm.cdf(a2)

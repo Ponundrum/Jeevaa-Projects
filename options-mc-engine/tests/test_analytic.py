@@ -75,3 +75,13 @@ def test_lookback_call_exceeds_vanilla():
 def test_digital_delta_matches_finite_difference():
     fd = (digital_price(S + 1e-3, K, T, r, SIG, Q, "call") - digital_price(S - 1e-3, K, T, r, SIG, Q, "call")) / 2e-3
     assert digital_delta(S, K, T, r, SIG, Q, "call") == pytest.approx(fd, rel=1e-4)
+
+
+def test_lookback_is_continuous_at_zero_carry():
+    # r == q used to raise ZeroDivisionError; the b -> 0 limit is finite and the
+    # function must be continuous through it.
+    for kind in ("call", "put"):
+        at_zero = lookback_floating_price(S, T, 0.05, SIG, 0.05, kind)
+        near_zero = lookback_floating_price(S, T, 0.05, SIG, 0.05 - 1e-8, kind)
+        assert at_zero == pytest.approx(near_zero, abs=1e-6)
+        assert at_zero > 0
