@@ -14,9 +14,13 @@ probability ``1 - exp(-lambda*dt)`` (not the ``lambda*dt`` small-step approximat
 One unit per fill.
 
 The optional ``adverse`` argument implements Layer 3c: after a fill the mid is
-nudged *against* the market maker by that many price units on the next step
-(a passive buy is followed by a fall, a passive sell by a rise) — the empirically
-measured adverse selection, fed back into the sim.
+nudged *against* the market maker by that many price units (a passive buy is
+followed by a fall, a passive sell by a rise) — the empirically measured adverse
+selection, fed back into the sim. ``adverse_steps`` controls *how* that move is
+injected: as a single jump at the fill step (``1``, the default) or spread evenly
+over the next ``adverse_steps`` steps. This is a genuine modelling choice — a maker
+that can flatten before the adverse move fully arrives keeps more of its PnL — so
+the notebook reports a **sensitivity** over it rather than one cell of the table.
 """
 from __future__ import annotations
 
@@ -53,16 +57,19 @@ class SimResult:
         return self.cash + self.inventory[:, -1] * self.mid[:, -1]
 
 
-def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0):
+def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0, adverse_steps=1):
     """Simulate ``n_paths`` market-making runs of horizon ``T`` and return a
     :class:`SimResult`.
 
     ``strategy(S, q, t)`` is called each step with the current mid, pre-fill
     inventory, and elapsed time (all vectors of length ``n_paths``) and returns
     the two half-spreads. ``A``/``kappa`` set the fill intensity; ``sigma`` the
-    mid volatility (price per sqrt-second); ``adverse`` the post-fill drift.
+    mid volatility (price per sqrt-second); ``adverse`` the post-fill drift, spread
+    evenly over ``adverse_steps`` steps starting at the fill (``1`` = a single jump
+    at the fill step, the original behaviour).
     """
     n = int(round(T / dt))
+    K = max(int(adverse_steps), 1)
     dW = sigma * np.sqrt(dt) * rng.standard_normal((n_paths, n))   # exogenous mid increments
     U_b = rng.random((n_paths, n))                                 # fill draws, bid / ask
     U_a = rng.random((n_paths, n))
@@ -70,6 +77,7 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0):
     S = np.full(n_paths, float(S0))
     q = np.zeros(n_paths)
     X = np.zeros(n_paths)
+    sched = np.zeros((n_paths, K))                                # adverse drift scheduled ahead
 
     mid = np.empty((n_paths, n + 1))
     mid[:, 0] = S
@@ -94,9 +102,14 @@ def run(strategy, *, S0, sigma, A, kappa, T, dt, n_paths, rng, adverse=0.0):
         ask_fills[:, t] = fa
         inv[:, t] = q                                             # inventory carried over [t, t+1]
 
-        adv = adverse * (fa - fb)                                 # sell -> mid rises against us; buy -> falls
-        S = S + dW[:, t] + adv
+        if adverse:
+            sched += (adverse * (fa - fb) / K)[:, None]           # sell -> rises against us; buy -> falls
+        adv_now = sched[:, 0].copy()
+        S = S + dW[:, t] + adv_now
         mid[:, t + 1] = S
+        if K > 1:
+            sched[:, :-1] = sched[:, 1:]                          # roll the schedule forward one step
+        sched[:, -1] = 0.0
 
     inv[:, n] = q
     return SimResult(mid=mid, inventory=inv, bid_fills=bid_fills, ask_fills=ask_fills,
