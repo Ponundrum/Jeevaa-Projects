@@ -14,10 +14,15 @@ precisely when buyers know something and the price is about to rise, and hit on 
 right before it falls. So the "buy low, sell high" is an illusion: you bought just before
 lower, and sold just before higher. With real BTCUSDT-futures quotes, the numbers are stark:
 a maker resting at the touch captures a half-spread of ~0.014 bps but is marked out ~0.30 bps
-within seconds — the market takes back roughly *twenty times* what you earned on the fill. So
-quoting at the touch genuinely loses. The escape is not to quote symmetrically-but-wider blindly;
-it is to *skew* around inventory (the next answers) and to quote wide enough that the captured
-spread beats the adverse selection — a width the fill elasticity `κ` pins down.
+within seconds — the market takes back roughly *twenty times* what you earned on the fill. And
+then there's the fee, which is the dominant term and the one beginners forget: the standard
+Binance maker fee is 2 bps, ~145× the spread you capture. So net per fill is about
+`0.014 − 0.30 − 2 = −2.3 bps` at retail — quoting at the touch isn't close. The reason real
+market makers exist is that they don't pay retail fees: exchange market-maker programmes pay a
+*negative* maker fee (a rebate of ~0.3 bps), which is what flips the sign. So "how do you earn
+the spread?" has three honest answers stacked in order of importance — get the rebate, skew
+around inventory so you don't warehouse a losing position, and quote wide enough (a width `κ`
+pins down) that spread beats adverse selection.
 
 **2. What is the reservation price, and why isn't it the mid?**
 

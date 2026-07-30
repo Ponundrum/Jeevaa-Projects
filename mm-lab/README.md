@@ -14,12 +14,15 @@ no reinforcement learning, no order-book reconstruction, no queue model. Where a
 form exists (the AS quoting rule, the `γ → 0` limit, the PnL accounting identity), the code
 is checked against it.
 
-**On BTCUSDT futures, a maker resting at the touch captures ~0.014 bps of spread but is
-marked out ~0.30 bps within seconds — adverse selection is ~20× the touch half-spread, so
-quoting at the touch is a losing business.** The spread is real (measured from the
-`bookTicker` bid/ask, not a proxy), and the fill elasticity `κ` says the model-optimal quote
-sits *much* wider than the touch; there, both strategies profit and Avellaneda–Stoikov wins
-on a ~13× smaller PnL variance — inventory control, not adverse-selection avoidance.
+**On BTCUSDT futures, a maker at the touch captures ~0.014 bps, is marked out ~0.30 bps, and
+pays a 2 bps maker fee — and the fee is the dominant term that decides the sign.** Net per
+fill is ~−2.3 bps at the standard tier, still negative at the free VIP-9 tier, and turns
+positive only under a **negative** maker fee (exchange market-maker programmes pay ~−0.3 bps).
+Market making here is not a spread business at retail fees at all — it exists because of the
+rebate. Spread, markout, and fee are all measured (the spread from the real `bookTicker`
+bid/ask, the fee from Binance's published schedule); Avellaneda–Stoikov's edge over naive is a
+~13× smaller PnL variance — inventory control, not adverse-selection avoidance — and its faster
+turnover actually costs it *more* once every fill is taxed.
 
 > **The honest arc.** This headline took three tries, and the repo shows all three: (1) a
 > *centred* mid proxy that peeked into the future gave a spurious "naive loses 2.5× the
@@ -91,7 +94,7 @@ Read it in this order:
 ```bash
 pip install -e ".[dev]"      # numpy / scipy / pandas / matplotlib
 python -c "from mmlab import self_test; self_test()"   # trust the lab first (~2s)
-pytest                       # 35 unit tests, no network (~3s)
+pytest                       # 37 unit tests, no network (~3s)
 jupyter lab                  # notebooks/01 ... then notebooks/02
 ```
 
@@ -116,6 +119,10 @@ with backoff and degrade gracefully offline.
   *alongside* it to quantify its errors (it under-states `σ` by ~25%, under-states `κ` ~3×,
   and its 1-second markout is a sign-flipped lag artefact — while its 5–300s adverse-selection
   plateau matches the truth). Knowing which proxy estimate to distrust is the point.
+- **Only the maker fee is modelled.** `simulate.run(fee_per_fill=…)` charges the Binance
+  USDⓈ-M maker fee on every fill (and a negative value models a market-maker rebate), but
+  funding payments and the *taker* fee on any hedging leg are not — a real book that offloads
+  inventory aggressively would pay those too.
 - **The markout is measured on *all* tape trades**, not on this strategy's own fills, so it
   estimates the adverse selection facing a *typical* passive quote; and the feedback injects
   it as a first-order per-fill drift whose *timing* is a modelling choice (the notebook reports

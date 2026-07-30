@@ -53,12 +53,12 @@ matched exactly to the **Avellaneda–Stoikov** quoting model, plus a data pipel
 selection** from Binance trades and feeds it back into the sim. Deliberately whiteboard-simple — no RL, no
 order-book reconstruction, no queue model — with every headline checked against a closed form.
 
-**On BTCUSDT futures, a maker resting at the touch captures ~0.014 bps but is marked out ~0.30 bps within
-seconds — adverse selection ~20× the touch half-spread, measured against the real `bookTicker` bid/ask.** So
-quoting at the touch loses; the fill elasticity says quote much wider, where both strategies profit and
-Avellaneda–Stoikov wins on a ~13× smaller PnL variance (inventory control, not adverse-selection avoidance).
-Getting to that number took three tries — a lookahead-bug proxy, a causal-but-blind proxy, then real quotes —
-and the repo shows and owns all three.
+**On BTCUSDT futures, a maker at the touch captures ~0.014 bps, is marked out ~0.30 bps, and pays a 2 bps
+maker fee — and the fee is the term that decides the sign.** Net per fill is ~−2.3 bps at retail fees and
+turns positive only under an exchange market-maker rebate (~−0.3 bps); market making here exists *because of*
+the rebate, not the spread. Spread, markout, and fee are all measured; Avellaneda–Stoikov's edge over naive
+is a ~13× smaller PnL variance (inventory control), and getting the spread number right took three tries — a
+lookahead-bug proxy, a causal-but-blind proxy, then real quotes — which the repo shows and owns.
 
 A Python package (`mmlab`) holds the simulator, the two strategies, calibration, markouts, and the real-quote
 loader; two notebooks tell the story — the model proven correct, then the proxy measured against real quotes.
