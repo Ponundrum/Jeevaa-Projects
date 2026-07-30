@@ -58,7 +58,7 @@ Read it in this order:
 ```bash
 pip install -e ".[dev]"      # numpy / scipy / pandas / matplotlib / yfinance
 python -c "from qmc import self_test; self_test()"   # trust the engine first (~1.3s)
-pytest                       # 26 unit tests, no network (~3s)
+pytest                       # 37 unit tests, no network (~3s)
 jupyter lab                  # notebooks/01 ... then notebooks/02
 ```
 
