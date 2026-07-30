@@ -72,9 +72,10 @@ perpetual closes, funding) straight from Binance's public archive (`data.binance
 in seconds.
 
 The universe is **point-in-time / survivorship-bias-free**: 379 coins that were liquid at some point in
-2020–2026, *including 155 since delisted or dead* (LUNA, FTT, SRM, …). The trading universe is the top-15 by
+2020–2026, *including 155 since delisted or dead* (LUNA, FTT, SRM, …) — "dead" meaning the last daily price
+lands more than 30 days before the sample end (2026-05-31). The trading universe is the top-15 by
 training-window dollar volume; the short leg is restricted to the 277 of those coins that have a tradeable
-USDT perpetual.
+USDT perpetual. (The 379 and 277 figures are pinned by `tests/test_universe.py`.)
 
 ## Method, in one paragraph
 
